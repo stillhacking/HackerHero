@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<!--
+  HackerHero — Offline Documentation
+  Covers: Application Architecture, Code Structure, Usage Guide, Extending
+  Last updated: 2026-04-02
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HackerHero Docs</title>
+  <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+  <style>
+    :root {
+      --bg:      #0d1117;
+      --bg2:     #161b22;
+      --border:  #30363d;
+      --text:    #e6edf3;
+      --text2:   #8b949e;
+      --accent:  #7c3aed;
+      --cyan:    #22d3ee;
+      --green:   #3fb950;
+      --font:    -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --mono:    "SFMono-Regular", Consolas, monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; line-height: 1.6; }
+    a { color: var(--cyan); }
+    code { font-family: var(--mono); background: var(--bg2); border: 1px solid var(--border); border-radius: 3px; padding: 1px 5px; font-size: 12px; }
+    pre  { font-family: var(--mono); background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 14px 16px; font-size: 12px; overflow-x: auto; white-space: pre; }
+
+    .layout   { display: flex; min-height: 100vh; }
+    .sidebar  { width: 260px; flex-shrink: 0; background: var(--bg2); border-right: 1px solid var(--border); padding: 24px 0; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+    .sidebar-logo { display: flex; align-items: center; gap: 10px; padding: 0 20px 20px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
+    .sidebar-logo img  { width: 36px; height: 36px; }
+    .sidebar-logo span { font-family: var(--mono); font-size: 17px; font-weight: 700; color: var(--accent); }
+    .sidebar nav a { display: block; padding: 7px 20px; color: var(--text2); text-decoration: none; font-size: 13px; border-left: 2px solid transparent; transition: color .15s, border-color .15s; }
+    .sidebar nav a:hover  { color: var(--text); border-left-color: var(--border); }
+    .sidebar nav a.active { color: var(--accent); border-left-color: var(--accent); }
+    .sidebar nav .nav-section { padding: 12px 20px 4px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--border); }
+
+    .content { flex: 1; padding: 48px 60px; max-width: 900px; }
+    .content section { margin-bottom: 56px; scroll-margin-top: 24px; }
+    h1 { font-size: 28px; margin-bottom: 8px; }
+    h2 { font-size: 20px; margin: 32px 0 10px; color: var(--text); padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+    h3 { font-size: 15px; margin: 20px 0 8px; color: var(--cyan); }
+    p  { color: var(--text2); margin-bottom: 12px; }
+    ul { list-style: none; padding: 0; }
+    ul li { padding: 4px 0 4px 20px; position: relative; color: var(--text2); }
+    ul li::before { content: '▸'; position: absolute; left: 0; color: var(--accent); }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 12px 0; }
+    th { text-align: left; padding: 8px 12px; background: var(--bg2); border: 1px solid var(--border); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--text2); }
+    td { padding: 8px 12px; border: 1px solid var(--border); vertical-align: top; color: var(--text2); }
+    .badge { display: inline-flex; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+    .badge-purple { background: rgba(124,58,237,.15); color: var(--accent); }
+    .badge-cyan   { background: rgba(34,211,238,.15);  color: var(--cyan); }
+    .badge-green  { background: rgba(63,185,80,.15);   color: var(--green); }
+    .breadcrumb { font-size: 12px; color: var(--text2); margin-bottom: 6px; }
+    .hero-sub { color: var(--text2); font-size: 16px; margin-top: 6px; }
+    .back-link { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; color: var(--text2); text-decoration: none; margin-bottom: 32px; transition: border-color .15s, color .15s; }
+    .back-link:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
+    .note { background: rgba(34,211,238,.06); border: 1px solid rgba(34,211,238,.2); border-radius: 6px; padding: 12px 16px; margin: 12px 0; font-size: 13px; color: var(--text2); }
+    .note strong { color: var(--cyan); }
+    .warn { background: rgba(248,81,73,.06); border: 1px solid rgba(248,81,73,.2); border-radius: 6px; padding: 12px 16px; margin: 12px 0; font-size: 13px; color: var(--text2); }
+  </style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <img src="../favicon.svg" alt="HackerHero" />
+      <span>HackerHero</span>
+    </div>
+    <nav>
+      <div class="nav-section">Documentation</div>
+      <a href="#usage">Usage Guide</a>
+      <a href="#usage-missions">— Operations</a>
+      <a href="#usage-overview">— Overview</a>
+      <a href="#usage-assets">— Assets &amp; Zones</a>
+      <a href="#usage-search">— Search</a>
+      <a href="#usage-map">— Network Map</a>
+      <a href="#usage-changelog">— Changelog</a>
+      <a href="#usage-tickets">— Tickets</a>
+      <a href="#usage-attachments">— Image Attachments</a>
+      <a href="#usage-import">— Import / Export</a>
+      <a href="#usage-settings">— Settings</a>
+      <div class="nav-section">Architecture</div>
+      <a href="#architecture">Application Architecture</a>
+      <a href="#data-model">Data Model</a>
+      <div class="nav-section">Code</div>
+      <a href="#code-structure">Code Structure</a>
+      <a href="#extending">Extending HackerHero</a>
+      <a href="#extending-parsers">— New Parser</a>
+      <a href="#extending-themes">— New Theme</a>
+      <a href="#extending-panels">— New Panel</a>
+    </nav>
+  </aside>
+
+  <!-- CONTENT -->
+  <main class="content">
+    <a href="../index.html" class="back-link">← Back to App</a>
+
+    <h1>HackerHero Documentation</h1>
+    <p class="hero-sub">Red Team Operations Manager — local-first, offline-capable, open source.</p>
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         USAGE GUIDE
+         ═══════════════════════════════════════════════════════════════════ -->
+    <section id="usage">
+      <h2>Usage Guide</h2>
+      <p>HackerHero runs entirely in your browser. No server, no internet connection required. All data is stored in the browser's IndexedDB persistent storage.</p>
+
+      <div class="note"><strong>Quick Start:</strong> Serve the project folder with <code>python3 -m http.server 8080</code> and open <code>http://localhost:8080</code>.</div>
+
+      <h3>First Launch</h3>
+      <ul>
+        <li>On first launch, a random Magic: The Gathering creature name is assigned as your operator name.</li>
+        <li>Change it in <strong>Settings → Operator Identity</strong> or click your name in the header.</li>
+        <li>Choose a UI theme from the header dropdown or the Settings panel.</li>
+      </ul>
+
+      <!-- ── Operations ─────────────────────────────────────────────── -->
+      <section id="usage-missions">
+        <h3>Operations</h3>
+        <ul>
+          <li>Click <strong>+ New Operation</strong> to create a red team operation.</li>
+          <li>Fill in: Code Name (required), Targets (comma-separated: company names, IPs, domains…), Objectives (one per line), and Context notes.</li>
+          <li>Click <strong>→ Enter</strong> on an operation to activate it. The operation name appears in the header badge.</li>
+          <li>Click <strong>⬇ Export</strong> to export the operation to a JSON file.</li>
+          <li>Click <strong>✕ Delete</strong> to permanently delete the operation and all its data (zones, assets, subitems, versions, tickets, changelog entries).</li>
+        </ul>
+      </section>
+
+      <!-- ── Overview ───────────────────────────────────────────────── -->
+      <section id="usage-overview">
+        <h3>Overview</h3>
+        <ul>
+          <li>After entering an operation, the <strong>Overview</strong> panel shows mission info, targets, objectives, context notes, and summary stats.</li>
+          <li>Add or remove <strong>targets</strong> dynamically (company names, IPs, domains).</li>
+          <li>Manage <strong>objectives</strong> with a lifecycle: <em>pending → in-progress → achieved → dropped</em>.</li>
+          <li>Edit the free-text <strong>context / notes</strong> area for background information on the target.</li>
+          <li>Stat cards provide quick links to <strong>Assets</strong>, <strong>Zones</strong>, <strong>Tickets</strong>, and <strong>Changelog</strong> panels.</li>
+        </ul>
+      </section>
+
+      <!-- ── Assets & Zones ─────────────────────────────────────────── -->
+      <section id="usage-assets">
+        <h3>Zones &amp; Assets</h3>
+        <ul>
+          <li>In the <strong>Assets</strong> panel, the <em>Internet</em> zone is created automatically for every operation.</li>
+          <li>Add custom zones (DMZ, Internal, VPN, Cloud…) with <strong>+ Zone</strong>. Each zone can have a custom color.</li>
+          <li>Select a zone to view and manage its assets. Use <strong>All Zones</strong> for an aggregated view across every zone.</li>
+          <li>Asset types: Machine 🖥️, Application 📦, Service ⚙️, Credential 🔑, Finding 🐛, Other 📄.</li>
+          <li>Assets support tree nesting — click <strong>+</strong> on an asset to add a child.</li>
+          <li>Mark an asset as <strong>Key Asset ★</strong> to highlight it on the network map.</li>
+          <li>Set a <strong>status badge</strong> on any asset: Owned 🔓, HVT 🎯, Interesting 👁, Todo 📌, Done ✅.</li>
+        </ul>
+
+        <h3>Data Items (Subitems)</h3>
+        <ul>
+          <li>Click <strong>📄</strong> on an asset to add a data item (paste command output, credentials, notes).</li>
+          <li>When pasting content, the auto-parser detects common formats and suggests a name. Click <strong>Apply</strong> to accept.</li>
+          <li>The app recognises <strong>52 command output formats</strong> including: <code>ip addr</code>, <code>ifconfig</code>, <code>ipconfig</code>, <code>nmap</code>, <code>netstat</code>, <code>ss</code>, <code>ps aux</code>, <code>ps faux</code>, <code>tasklist</code>, <code>systeminfo</code>, <code>uname</code>, <code>/etc/passwd</code>, <code>/etc/shadow</code>, <code>/etc/hosts</code>, <code>iptables</code>, <code>sudo -l</code>, <code>net user</code>, <code>net localgroup</code>, <code>schtasks</code>, <code>crontab</code>, SSH keys, HTTP headers, hash lists, DNS lookups, Nikto, web fuzzing results, Apache/Nginx configs, and more.</li>
+          <li>Hover over any asset or data item to see the operator who added it and the timestamp.</li>
+        </ul>
+
+        <h3>Version History &amp; Diff</h3>
+        <ul>
+          <li>Every asset and subitem edit saves a version snapshot with timestamp and operator name.</li>
+          <li>Use the <strong>version dropdown</strong> to compare any two versions side-by-side.</li>
+          <li>The diff view uses <strong>LCS-based line-level comparison</strong> with color-coded additions (green) and deletions (red).</li>
+          <li>Click <strong>Restore</strong> to revert an asset or subitem to any previous version.</li>
+        </ul>
+
+        <h3>Drag &amp; Drop</h3>
+        <ul>
+          <li>Assets can be <strong>dragged and dropped between zones</strong> to reassign them.</li>
+          <li>Drop an asset onto a different zone in the sidebar to move it.</li>
+        </ul>
+
+        <h3>Keyboard Navigation</h3>
+        <ul>
+          <li><strong>↑ / ↓</strong> — navigate between assets in the tree.</li>
+          <li><strong>Enter / Space</strong> — select the highlighted asset.</li>
+          <li><strong>Tab</strong> — move focus between the three columns (zones, assets, data).</li>
+        </ul>
+
+        <h3>Column Resize</h3>
+        <ul>
+          <li>The three-column layout (zones / assets / data viewer) features <strong>draggable resize handles</strong>.</li>
+          <li>Drag the dividers between columns to adjust widths to your preference.</li>
+        </ul>
+      </section>
+
+      <!-- ── Search ─────────────────────────────────────────────────── -->
+      <section id="usage-search">
+        <h3>Search</h3>
+        <ul>
+          <li>Type any keyword and press Enter or click <strong>Search</strong>.</li>
+          <li>Results are grouped by type: Zones, Assets, Data Items, Objectives.</li>
+          <li>Use the <strong>status filter bar</strong> to narrow results by entity type.</li>
+          <li>Click <strong>Advanced ▾</strong> to filter by: date range, operator name, zone, asset type.</li>
+          <li>Enable <strong>Regex mode</strong> to use regular expressions in the query.</li>
+          <li>Matching text is highlighted for easy scanning.</li>
+        </ul>
+      </section>
+
+      <!-- ── Network Map ────────────────────────────────────────────── -->
+      <section id="usage-map">
+        <h3>Network Map</h3>
+        <ul>
+          <li>The Map panel renders all zones and their assets as an interactive SVG diagram.</li>
+          <li>Zones are displayed as colored rectangles with an auto-grid layout of assets inside.</li>
+          <li>Key assets are shown with a gold dot ★.</li>
+          <li>Pan by clicking and dragging. Zoom with the mouse wheel.</li>
+          <li>Click <strong>Hide Non-Key</strong> to focus on key assets only.</li>
+          <li>Click <strong>Fit</strong> to reset zoom and pan.</li>
+          <li>Click <strong>⬇ SVG</strong> to export the map as a standalone SVG file.</li>
+        </ul>
+      </section>
+
+      <!-- ── Changelog ──────────────────────────────────────────────── -->
+      <section id="usage-changelog">
+        <h3>Changelog</h3>
+        <ul>
+          <li>Every create, update, and delete is automatically recorded with timestamp and operator name.</li>
+          <li>The Changelog panel shows all entries for the active operation, newest first.</li>
+          <li>Click the revert button <strong>⌫</strong> on any entry to undo that change.</li>
+          <li>Reverting a <em>create</em> deletes the entity. Reverting an <em>update</em> restores the previous state. Reverting a <em>delete</em> recreates the entity.</li>
+        </ul>
+      </section>
+
+      <!-- ── Tickets ────────────────────────────────────────────────── -->
+      <section id="usage-tickets">
+        <h3>Tickets</h3>
+        <p>The Tickets panel provides a lightweight issue-tracking system embedded directly in each operation.</p>
+        <ul>
+          <li>Create tickets from the <strong>Tickets panel</strong> or directly from an asset / zone / subitem context menu.</li>
+          <li>Each ticket has a <strong>title</strong>, <strong>description</strong>, <strong>priority</strong>, and <strong>status</strong>.</li>
+          <li><strong>Priorities:</strong> Low 🟢, Medium 🟡, High 🟠, Critical 🔴.</li>
+          <li><strong>Status:</strong> Open or Closed. Toggling status is reflected everywhere the ticket is referenced.</li>
+          <li>Tickets can be <strong>linked to a zone, asset, or subitem</strong> via <code>refType</code> / <code>refId</code>, giving you contextual traceability.</li>
+          <li>Each ticket has a <strong>conversation thread</strong> — add messages to discuss findings, status updates, or follow-ups.</li>
+          <li>Filter tickets by <strong>text search</strong> and <strong>status</strong> (open / closed / all).</li>
+          <li>Linked tickets are also displayed inline in the <strong>Assets panel</strong> next to their referenced entity.</li>
+          <li>Ticket creation and status changes are recorded in the <strong>Changelog</strong>.</li>
+        </ul>
+      </section>
+
+      <!-- ── Image Attachments ──────────────────────────────────────── -->
+      <section id="usage-attachments">
+        <h3>Image Attachments</h3>
+        <p>Assets, data items (subitems), and tickets support image attachments displayed as an Outlook-style thumbnail strip below each detail view.</p>
+        <ul>
+          <li><strong>Add an image:</strong> click the <strong>+</strong> button in the attachment strip. Only image files are accepted (<code>image/*</code>), with a maximum size of <strong>10 MB</strong> per file.</li>
+          <li><strong>Where they appear:</strong> asset detail view, data item detail view, and ticket detail view — each shows a horizontal strip of 52 px square thumbnails.</li>
+          <li><strong>Lightbox gallery:</strong> click any thumbnail to open a full-screen lightbox. Navigate between images with the <strong>← / →</strong> arrow keys or the on-screen prev/next buttons.</li>
+          <li><strong>Delete an image:</strong> hover over a thumbnail and click the <strong>✕</strong> button to remove it.</li>
+          <li><strong>Thumbnails:</strong> auto-generated at 120 px, JPEG quality 0.7, for fast rendering.</li>
+          <li><strong>Storage:</strong> images are stored as base64 data URLs in the IndexedDB <code>attachments</code> object store.</li>
+          <li><strong>Cascade delete:</strong> when a parent entity (asset, subitem, or ticket) is deleted, all its attachments are automatically removed.</li>
+          <li><strong>Import / Export:</strong> attachments are included in JSON exports. The export format version has been bumped to <strong>2</strong> to account for attachment data.</li>
+        </ul>
+        <div class="note"><strong>Tip:</strong> Keep image sizes reasonable. Large screenshots are resized for thumbnails but the full-resolution original is stored in IndexedDB as base64, which can increase export file size.</div>
+      </section>
+
+      <!-- ── Import / Export ────────────────────────────────────────── -->
+      <section id="usage-import">
+        <h3>Import / Export</h3>
+        <ul>
+          <li>Export any individual operation via <strong>⬇ Export</strong> in the Operations panel.</li>
+          <li>Export all operations at once via <strong>Settings → Export All Operations</strong>.</li>
+          <li>Import a JSON file via <strong>⬆ Import</strong> in the Operations panel.</li>
+          <li>Imported data is assigned new IDs to prevent conflicts. Original operator names and timestamps are preserved.</li>
+          <li>You can optionally override the code name during import.</li>
+          <li>Both single-mission and multi-mission backup formats are supported.</li>
+        </ul>
+      </section>
+
+      <!-- ── Settings ───────────────────────────────────────────────── -->
+      <section id="usage-settings">
+        <h3>Settings</h3>
+        <ul>
+          <li><strong>Operator Identity:</strong> change your operator name or click the dice button to get a new random Magic creature name.</li>
+          <li><strong>Theme:</strong> pick from 6 visual themes displayed as cards with live swatches.</li>
+          <li><strong>Export All:</strong> export every operation as a single JSON backup file.</li>
+          <li><strong>Clear All Data:</strong> delete all operations and reset the database. Requires double confirmation.</li>
+          <li><strong>Database Reset (Nuclear):</strong> completely destroy and recreate the IndexedDB. Use only as a last resort.</li>
+        </ul>
+      </section>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         ARCHITECTURE
+         ═══════════════════════════════════════════════════════════════════ -->
+    <section id="architecture">
+      <h2>Application Architecture</h2>
+      <p>HackerHero is a <strong>local-first single-page application (SPA)</strong>. It requires only a basic HTTP server to serve static files. No backend, no build step, no npm install.</p>
+
+      <h3>Technology Stack</h3>
+      <table>
+        <tr><th>Layer</th><th>Technology</th><th>Notes</th></tr>
+        <tr><td>UI</td><td>Vanilla HTML + CSS + ES6 JS</td><td>No frameworks. Zero dependencies.</td></tr>
+        <tr><td>Storage</td><td>IndexedDB</td><td>Via a Promise-based wrapper in <code>db.js</code> — 11 object stores</td></tr>
+        <tr><td>Modules</td><td>ES6 native modules</td><td><code>type="module"</code> — requires HTTP server</td></tr>
+        <tr><td>Styling</td><td>CSS Custom Properties</td><td>6 themes, zero pre-processing</td></tr>
+      </table>
+
+      <h3>Data Flow</h3>
+      <ul>
+        <li>User interaction → Panel method → <code>DB.*</code> → IndexedDB</li>
+        <li>Every mutation also calls <code>logChange()</code> to record a changelog entry.</li>
+        <li>UI re-renders by calling <code>Panel.render()</code> which regenerates the panel's HTML.</li>
+        <li>No virtual DOM, no reactivity framework — simple, explicit DOM manipulation.</li>
+      </ul>
+
+      <h3>Offline &amp; Privacy</h3>
+      <ul>
+        <li>Zero network requests after initial load. Works in air-gapped environments.</li>
+        <li>All data stays in the browser's IndexedDB on the local machine.</li>
+        <li>Data can be exported as JSON for backup or cross-machine transfer.</li>
+      </ul>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         DATA MODEL
+         ═══════════════════════════════════════════════════════════════════ -->
+    <section id="data-model">
+      <h2>Data Model</h2>
+
+      <h3>IndexedDB Stores</h3>
+      <p>Database: <code>HackerHeroDB</code>, version <strong>3</strong>. Contains 11 object stores:</p>
+      <table>
+        <tr><th>Store</th><th>Key</th><th>Indexes</th><th>Description</th></tr>
+        <tr><td><code>settings</code></td><td>key</td><td>—</td><td>App settings (operator name, theme)</td></tr>
+        <tr><td><code>missions</code></td><td>id</td><td>by-codename, by-created</td><td>Red team operations</td></tr>
+        <tr><td><code>zones</code></td><td>id</td><td>by-mission</td><td>Network zones per mission</td></tr>
+        <tr><td><code>assets</code></td><td>id</td><td>by-mission, by-zone, by-parent</td><td>Assets (tree structure)</td></tr>
+        <tr><td><code>assetVersions</code></td><td>id</td><td>by-asset, by-timestamp</td><td>Version snapshots of assets</td></tr>
+        <tr><td><code>subitems</code></td><td>id</td><td>by-asset, by-parent</td><td>Data items attached to assets</td></tr>
+        <tr><td><code>subitemVersions</code></td><td>id</td><td>by-subitem, by-timestamp</td><td>Version snapshots of subitems</td></tr>
+        <tr><td><code>changelog</code></td><td>id</td><td>by-mission, by-timestamp</td><td>Full audit log</td></tr>
+        <tr><td><code>tickets</code></td><td>id</td><td>by-mission, by-ref</td><td>Issue tickets linked to entities</td></tr>
+        <tr><td><code>ticketMessages</code></td><td>id</td><td>by-ticket</td><td>Conversation messages per ticket</td></tr>
+        <tr><td><code>attachments</code></td><td>id</td><td>by-parent</td><td>Image attachments (base64 data URLs) for assets, subitems, and tickets</td></tr>
+      </table>
+
+      <h3>Key Relationships</h3>
+      <ul>
+        <li><code>Mission</code> → has many <code>Zone</code>, <code>Asset</code>, <code>Ticket</code>, <code>ChangelogEntry</code></li>
+        <li><code>Zone</code> → has many <code>Asset</code> (root assets, <code>parentId = null</code>)</li>
+        <li><code>Asset</code> → has many child <code>Asset</code> (via <code>parentId</code>), <code>Subitem</code>, <code>AssetVersion</code></li>
+        <li><code>Subitem</code> → has many <code>SubitemVersion</code> (version history for data items)</li>
+        <li><code>Ticket</code> → linked to a <code>Zone</code>, <code>Asset</code>, or <code>Subitem</code> via <code>refType</code> / <code>refId</code>; has many <code>TicketMessage</code></li>
+        <li><code>ChangelogEntry</code> stores full <code>previousState</code> and <code>newState</code> objects for revert capability</li>
+      </ul>
+
+      <h3>DB Methods (38 total)</h3>
+      <table>
+        <tr><th>Category</th><th>Methods</th></tr>
+        <tr><td>Settings</td><td><code>getSetting</code>, <code>setSetting</code></td></tr>
+        <tr><td>Missions</td><td><code>getAllMissions</code>, <code>getMission</code>, <code>saveMission</code>, <code>deleteMission</code> (cascade)</td></tr>
+        <tr><td>Zones</td><td><code>getZonesForMission</code>, <code>getZone</code>, <code>saveZone</code>, <code>deleteZone</code> (cascade)</td></tr>
+        <tr><td>Assets</td><td><code>getAssetsForMission</code>, <code>getAssetsForZone</code>, <code>getChildAssets</code>, <code>getAsset</code>, <code>saveAsset</code>, <code>deleteAssetRecursive</code></td></tr>
+        <tr><td>Subitems</td><td><code>getSubitemsForAsset</code>, <code>getSubitem</code>, <code>saveSubitem</code>, <code>deleteSubitem</code></td></tr>
+        <tr><td>Subitem Versions</td><td><code>saveSubitemVersion</code>, <code>getSubitemVersions</code></td></tr>
+        <tr><td>Asset Versions</td><td><code>saveAssetVersion</code>, <code>getAssetVersions</code></td></tr>
+        <tr><td>Changelog</td><td><code>getChangelogForMission</code>, <code>saveChangelogEntry</code>, <code>deleteChangelogEntry</code></td></tr>
+        <tr><td>Tickets</td><td><code>getTicketsForMission</code>, <code>getTicketsForRef</code>, <code>getTicket</code>, <code>saveTicket</code>, <code>deleteTicket</code></td></tr>
+        <tr><td>Messages</td><td><code>getMessagesForTicket</code>, <code>saveMessage</code>, <code>deleteMessage</code></td></tr>
+        <tr><td>Global</td><td><code>getAllDataForMission</code>, <code>importMissionData</code>, <code>nukeDatabase</code></td></tr>
+      </table>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         CODE STRUCTURE
+         ═══════════════════════════════════════════════════════════════════ -->
+    <section id="code-structure">
+      <h2>Code Structure</h2>
+      <pre>HackerHero/
+  index.html          HTML shell (~500 lines). Panel containers are empty
+                      &lt;section&gt; tags. Panels rendered dynamically by app.js.
+                      Includes Matrix canvas, Upside Down overlay (spores,
+                      vines, bikes, Vecna clock), Operation alert banner.
+  favicon.svg         SVG logo — hacker playing guitar (Eddie / Stranger Things)
+  README.md           Quick start &amp; setup
+  css/
+    app.css           All styles (~2360 lines). Organised in 8 sections:
+                      1. CSS Custom Properties (6 themes via [data-theme])
+                      2. Reset &amp; Base
+                      3. Layout (sidebar, header, 3-column assets)
+                      4. Navigation
+                      5. Panels
+                      6. Components (buttons, forms, tables, cards, badges…)
+                      7. Special theme effects (Matrix rain, Upside Down,
+                         Operation banner)
+                      8. Utilities &amp; responsive
+  js/
+    db.js             IndexedDB wrapper (~730 lines). Exports DB object with
+                      38 CRUD methods for 11 object stores. Handles schema
+                      migrations (v1 → v2 → v3). JSDoc type definitions.
+    utils.js          Pure utility functions (~290 lines, 21 exports):
+                      generateId, formatDate, escHtml, matchesQuery,
+                      debounce, DOM helpers, file I/O, XSS sanitization,
+                      import validation, sort comparators.
+    magic-names.js    ~290 Magic: The Gathering creature names +
+                      getRandomCreatureName() export.
+    parsers.js        Command output parsers (~2720 lines). Exports PARSERS[]
+                      (52 parsers in 11 categories), detectParsers(),
+                      runParser(). Fully extensible.
+    app.js            Main application module (~3940 lines). Contains:
+                      - State object (central mutable state)
+                      - logChange() changelog helper
+                      - ThemeManager (6 themes + Matrix rain + Upside Down
+                        effects: reflection, flicker, nav flicker)
+                      - UI utilities (Modal, Toast, Confirm, Tooltip)
+                      - Navigation / showPanel() dispatcher
+                      - MissionsPanel    — operation CRUD, card grid
+                      - OverviewPanel    — mission info, targets, objectives
+                      - AssetsPanel      — 3-column zone/asset/data view
+                        (tree, drag-drop, keyboard nav, column resize,
+                         version diff, status badges, parser auto-detect)
+                      - SearchPanel      — basic + advanced with regex
+                      - MapPanel         — interactive SVG + pan/zoom
+                      - ChangelogPanel   — audit log with revert
+                      - TicketsPanel     — issue tracking with priorities,
+                        linked references, conversation threads
+                      - SettingsPanel    — operator, themes, export, reset
+                      - DocsPanel        — built-in documentation tabs
+                      - ImportExport     — JSON import/export
+                      - init()           — app bootstrap
+  docs/
+    index.html        This documentation file (self-contained HTML)</pre>
+
+      <h3>52 Command Output Parsers</h3>
+      <p>The <code>PARSERS</code> array in <code>js/parsers.js</code> contains 52 parsers organised in 11 categories:</p>
+      <table>
+        <tr><th>Category</th><th>Parsers</th></tr>
+        <tr><td>Network / Identity</td><td><code>ip_addr</code>, <code>ifconfig</code>, <code>ipconfig</code>, <code>id_whoami</code>, <code>whoami_all</code>, <code>uname</code>, <code>os_release</code></td></tr>
+        <tr><td>Scanning</td><td><code>nmap</code>, <code>port_scan</code>, <code>web_fuzz</code>, <code>nikto</code>, <code>dns_lookup</code></td></tr>
+        <tr><td>Connections &amp; Routing</td><td><code>netstat</code>, <code>ss</code>, <code>arp</code>, <code>route</code>, <code>lsof</code></td></tr>
+        <tr><td>Processes &amp; Services</td><td><code>ps_faux</code>, <code>ps_aux</code>, <code>tasklist</code>, <code>sc_query</code>, <code>schtasks</code>, <code>crontab</code></td></tr>
+        <tr><td>System Info</td><td><code>systeminfo</code>, <code>mount_df</code>, <code>etc_fstab</code>, <code>env_vars</code>, <code>pkg_list</code>, <code>dir_ls</code>, <code>wmic</code></td></tr>
+        <tr><td>Files &amp; Secrets</td><td><code>etc_passwd</code>, <code>etc_shadow</code>, <code>etc_hosts</code>, <code>etc_group</code>, <code>resolv_conf</code>, <code>ssh_priv_key</code>, <code>ssh_pub_key</code>, <code>authorized_keys</code>, <code>known_hosts</code>, <code>ssh_keys</code>, <code>hash_list</code>, <code>http_headers</code>, <code>cmd_history</code></td></tr>
+        <tr><td>Users &amp; Privileges</td><td><code>net_user</code>, <code>net_localgroup</code>, <code>net_share</code>, <code>sudo_l</code>, <code>etc_sudoers</code>, <code>cmdkey</code></td></tr>
+        <tr><td>Config Files</td><td><code>sshd_config</code>, <code>apache_conf</code></td></tr>
+        <tr><td>Firewall</td><td><code>iptables</code></td></tr>
+        <tr><td>Registry</td><td><code>reg_query</code></td></tr>
+      </table>
+      <p>Each parser exposes: <code>id</code>, <code>label</code>, <code>icon</code>, <code>detect(text) → confidence</code>, <code>parse(text) → data</code>, <code>suggestName(data)</code>, <code>suggestItemName()</code>.</p>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         EXTENDING
+         ═══════════════════════════════════════════════════════════════════ -->
+    <section id="extending">
+      <h2>Extending HackerHero</h2>
+      <p>HackerHero is designed for easy extension. Common extension points are described below.</p>
+    </section>
+
+    <section id="extending-parsers">
+      <h3>Adding a New Command Output Parser</h3>
+      <p>Open <code>js/parsers.js</code> and follow these steps:</p>
+      <pre>// 1. Create your parser object
+const MY_PARSER = {
+  id:    'my_parser',      // unique string ID
+  label: 'My Tool output', // shown in auto-detect UI
+  icon:  '🔧',
+
+  // detect(text) → confidence 0..1
+  // Return &gt; 0.1 to appear as a candidate
+  detect(text) {
+    let s = 0;
+    if (/my unique pattern/i.test(text)) s += 0.5;
+    if (/another pattern/.test(text))    s += 0.5;
+    return Math.min(1, s);
+  },
+
+  // parse(text) → structured data object (anything you want)
+  parse(text) {
+    return { lines: text.split('\\n').filter(Boolean) };
+  },
+
+  // Suggested asset name (or null)
+  suggestName(parsedData) { return null; },
+
+  // Suggested subitem label
+  suggestItemName()       { return 'my tool'; },
+};
+
+// 2. Add to the appropriate category section in the PARSERS array
+//    (at the bottom of parsers.js — currently 52 parsers in 11 categories)
+export const PARSERS = [
+  // ... Network / Identity ...
+  // ... Scanning ...
+  // ... (other categories) ...
+  MY_PARSER,   // ← add here or in the relevant category
+];</pre>
+      <p>That's it. The auto-detect dialog will pick it up automatically next time the user pastes content into a data item.</p>
+    </section>
+
+    <section id="extending-themes">
+      <h3>Adding a New Theme</h3>
+      <p><strong>Step 1:</strong> Add CSS custom properties in <code>css/app.css</code>:</p>
+      <pre>[data-theme="my-theme"] {
+  --c-bg:          #…;
+  --c-bg2:         #…;
+  --c-bg3:         #…;
+  --c-border:      #…;
+  --c-text:        #…;
+  --c-text2:       #…;
+  --c-text3:       #…;
+  --c-accent:      #…;
+  --c-accent-hover:#…;
+  --c-accent2:     #…;
+  --c-success:     #…;
+  --c-warning:     #…;
+  --c-danger:      #…;
+  --c-info:        #…;
+  --c-key-badge:   #…;
+  --glow-accent:   …;
+  --glow-cyan:     …;
+}</pre>
+      <p><strong>Step 2:</strong> Register in <code>ThemeManager.themes</code> in <code>js/app.js</code>:</p>
+      <pre>ThemeManager.themes['my-theme'] = {
+  name:   'My Theme',
+  desc:   'Short description',
+  swatch: ['#bg-color', '#accent-color'],
+};</pre>
+      <p><strong>Step 3:</strong> Add an option in the header select in <code>index.html</code>:</p>
+      <pre>&lt;option value="my-theme"&gt;⬛ My Theme&lt;/option&gt;</pre>
+    </section>
+
+    <section id="extending-panels">
+      <h3>Adding a New Panel</h3>
+      <p><strong>Step 1:</strong> Add a panel container in <code>index.html</code>:</p>
+      <pre>&lt;section id="panel-mypanel" class="panel" role="main"&gt;&lt;/section&gt;</pre>
+      <p><strong>Step 2:</strong> Add a nav item in the sidebar:</p>
+      <pre>&lt;li class="nav-item" data-panel="mypanel" title="My Panel"&gt;
+  &lt;span class="nav-icon"&gt;🚀&lt;/span&gt;
+  &lt;span class="nav-label"&gt;My Panel&lt;/span&gt;
+&lt;/li&gt;</pre>
+      <p><strong>Step 3:</strong> Create a panel object in <code>js/app.js</code>:</p>
+      <pre>const MyPanel = {
+  async render() {
+    qs('#panel-mypanel').innerHTML = `&lt;div class="panel-header"&gt;
+      &lt;h2&gt;My Panel&lt;/h2&gt;
+    &lt;/div&gt;
+    &lt;p&gt;Hello from MyPanel!&lt;/p&gt;`;
+    this.bindEvents();
+  },
+  bindEvents() {
+    // Attach DOM event listeners here
+  },
+};</pre>
+      <p><strong>Step 4:</strong> Register it in the <code>showPanel()</code> switch:</p>
+      <pre>case 'mypanel': await MyPanel.render(); break;</pre>
+      <div class="note"><strong>Tip:</strong> If the panel should only be accessible when an operation is active (like Assets or Search), add <code>class="nav-item mission-only"</code> to the nav item. It will be greyed out until an operation is entered.</div>
+    </section>
+
+  </main>
+</div>
+
+<script>
+  // Highlight active section in sidebar nav on scroll
+  const links = document.querySelectorAll('.sidebar nav a[href^="#"]');
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((e) => {
+      if (e.isIntersecting) {
+        const id = e.target.id;
+        links.forEach((a) => a.classList.toggle('active', a.getAttribute('href') === `#${id}`));
+      }
+    });
+  }, { rootMargin: '-20% 0px -70% 0px' });
+  document.querySelectorAll('section[id]').forEach((s) => observer.observe(s));
+</script>
+</body>
+</html>
