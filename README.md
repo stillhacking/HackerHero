@@ -53,6 +53,35 @@ Want to try it instantly? Open **Settings → Demo Mode → 🎭 Load Demo Data*
 
 ---
 
+## 🖼️ Screenshots
+
+
+<p align="center">
+  <img src="screenshots/assets-nmap-diff.png" alt="Assets panel with nmap scan diff and versioning" width="700" /><br>
+  <em>Assets panel: nmap scan with version diff and color-coded changes</em>
+</p>
+
+<p align="center">
+  <img src="screenshots/changelog-log.png" alt="Changelog panel with audit log" width="700" /><br>
+  <em>Changelog: full audit log with operator attribution</em>
+</p>
+
+<p align="center">
+  <img src="screenshots/overview-dashboard.png" alt="Overview dashboard with KPIs and objectives" width="700" /><br>
+  <em>Overview: KPIs, activity, objectives, tickets, targets, and mission briefing</em>
+</p>
+
+<p align="center">
+  <img src="screenshots/tickets-list.png" alt="Tickets panel with open/closed tickets" width="700" /><br>
+  <em>Tickets panel: open and closed tickets with priorities</em>
+</p>
+
+<p align="center">
+  <img src="screenshots/tickets-thread.png" alt="Tickets panel with threaded discussion" width="700" /><br>
+  <em>Tickets: threaded discussion with Markdown and status</em>
+</p>
+---
+
 ## 📁 Project Structure
 
 ```
