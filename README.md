@@ -26,6 +26,20 @@ open http://localhost:8000
 
 > **Why HTTP?** ES6 `import` statements are blocked on `file://` by browsers. Any static file server works — Python, Node.js `serve`, Nginx, Apache, etc.
 
+### 🐳 Docker
+
+```bash
+# Build the image
+docker build -t hackerhero .
+
+# Run the container (accessible at http://localhost:8080)
+docker run -d -p 8080:80 --name hackerhero hackerhero
+```
+
+> Data is stored in your **browser's IndexedDB** — not in the container. Use **Export All** to back up your data before removing the container.
+
+---
+
 Want to try it instantly? Open **Settings → Demo Mode → 🎭 Load Demo Data** to generate 3 realistic operations with zones, assets, parsed data, tickets, and changelog entries.
 
 ---
@@ -88,6 +102,7 @@ Want to try it instantly? Open **Settings → Demo Mode → 🎭 Load Demo Data*
 HackerHero/
 ├── index.html              HTML shell: header, sidebar, 8 panels, modal, overlays (~408 lines)
 ├── favicon.svg             Logo (Eddie Munson / Stranger Things style)
+├── Dockerfile              Docker image definition (nginx:alpine, serves on port 80)
 ├── README.md               This file
 ├── css/
 │   └── app.css             All styles + 8 themes via CSS custom properties (~3,460 lines)
