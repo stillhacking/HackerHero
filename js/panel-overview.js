@@ -16,9 +16,9 @@ import {
   generateId, now, formatDate, formatDateFull, timeAgo,
   escHtml, truncate, qs, qsa, deepClone,
   buildTimezoneOptions, renderMarkdown,
-} from './core.js?v=20260406u';
-import { MissionsPanel } from './panel-missions.js?v=20260406u';
-import { TICKET_PRIORITIES, AssetsPanel } from './panel-assets.js?v=20260406u';
+} from './core.js?v=20260407g';
+import { MissionsPanel } from './panel-missions.js?v=20260407g';
+import { TICKET_PRIORITIES, AssetsPanel } from './panel-assets.js?v=20260407g';
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  OVERVIEW PANEL
@@ -332,7 +332,7 @@ export const OverviewPanel = {
         }
         if (nav === 'tickets') {
           // Always land on the list, never inside a specific ticket
-          import('./panel-tickets.js?v=20260406u').then(({ TicketsPanel }) => {
+          import('./panel-tickets.js?v=20260407g').then(({ TicketsPanel }) => {
             TicketsPanel._viewingTicketId = null;
           });
         }

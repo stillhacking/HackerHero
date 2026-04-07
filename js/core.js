@@ -22,25 +22,25 @@
  */
 
 // ── Re-exports ────────────────────────────────────────────────────────────
-export { DB }                   from './db.js?v=20260406u';
-export { PARSERS, detectParsers, runParser } from './parsers.js?v=20260406u';
-export { getRandomCreatureName } from './magic-names.js?v=20260406u';
+export { DB }                   from './db.js?v=20260407g';
+export { PARSERS, detectParsers, runParser } from './parsers.js?v=20260407g';
+export { getRandomCreatureName } from './magic-names.js?v=20260407g';
 export {
   generateId, now, formatDate, formatDateFull, timeAgo,
   truncate, escHtml, highlight, matchesQuery,
   debounce, qs, qsa, el, deepClone,
   downloadFile, readFileAsText, readFileAsDataURL, createThumbnail, byField, byDateDesc,
-} from './utils.js?v=20260406u';
-export { ASSET_ICONS, ICON_CATEGORIES, ASSET_ICON_MAP, PARSER_ICON_MAP, getAssetIconSvg } from './asset-icons.js?v=20260406u';
+} from './utils.js?v=20260407g';
+export { ASSET_ICONS, ICON_CATEGORIES, ASSET_ICON_MAP, PARSER_ICON_MAP, getAssetIconSvg } from './asset-icons.js?v=20260407g';
 
 // Local aliases for use inside this file
-import { DB }                   from './db.js?v=20260406u';
-import { getRandomCreatureName } from './magic-names.js?v=20260406u';
+import { DB }                   from './db.js?v=20260407g';
+import { getRandomCreatureName } from './magic-names.js?v=20260407g';
 import {
   generateId, now, escHtml,
   qs, qsa, el,
   downloadFile, readFileAsText, readFileAsDataURL, createThumbnail,
-} from './utils.js?v=20260406u';
+} from './utils.js?v=20260407g';
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  APPLICATION STATE
@@ -555,21 +555,36 @@ export const ImportExport = {
     UI.toast(`Exported ${missions.length} operation(s)`, 'success');
   },
 
+  /**
+   * Returns a unique codename by appending -01, -02… if the name already exists.
+   * @param {string} base
+   * @param {Set<string>} existingNamesLower  lowercase codenames already taken
+   * @returns {string}
+   */
+  _dedupCodename(base, existingNamesLower) {
+    if (!existingNamesLower.has(base.toLowerCase())) return base;
+    for (let i = 1; i < 100; i++) {
+      const candidate = `${base}-${String(i).padStart(2, '0')}`;
+      if (!existingNamesLower.has(candidate.toLowerCase())) return candidate;
+    }
+    return `${base}-${Date.now()}`;
+  },
+
+  /**
+   * General import: creates NEW operations from a JSON file.
+   * If a codename already exists, it is auto-suffixed with -01, -02, etc.
+   */
   openImportDialog() {
     UI.openModal({
-      title: 'Import Operation',
+      title: 'Import Operations',
       bodyHtml: `
         <p class="text-dim" style="font-size:13px;margin-bottom:14px">
-          Select a HackerHero JSON export file. Data will be imported with new IDs to avoid conflicts.
-          Operator names from the original file are preserved for traceability.
+          Import one or more operations from a HackerHero JSON export file.<br>
+          If a codename already exists, a suffix (<code>-01</code>, <code>-02</code>…) is added automatically.
         </p>
         <div class="form-group">
           <label class="form-label">JSON File</label>
           <input type="file" id="import-file" accept=".json" style="padding:6px;font-size:13px;cursor:pointer" />
-        </div>
-        <div class="form-group">
-          <label class="form-label">Override Code Name <span class="form-hint">(optional)</span></label>
-          <input type="text" id="import-codename" placeholder="Leave blank to keep original" />
         </div>`,
       confirmLabel: 'Import',
       onConfirm: async () => {
@@ -581,29 +596,151 @@ export const ImportExport = {
           try { data = JSON.parse(text); } catch { UI.toast('Invalid JSON file', 'error'); return; }
           if (text.length > 100 * 1024 * 1024) { UI.toast('File too large (max 100 MB)', 'error'); return; }
           const existingMissions = await DB.getAllMissions();
-          const existingNames = new Set(existingMissions.map(m => m.codename.toLowerCase()));
-          const checkDuplicate = (name) => {
-            if (existingNames.has(name.toLowerCase())) {
-              throw new Error(`An operation named "${name}" already exists`);
-            }
-            existingNames.add(name.toLowerCase());
-          };
+          const usedNames = new Set(existingMissions.map(m => m.codename.toLowerCase()));
+
           const importSingle = async (missionData) => {
-            const codename = qs('#import-codename')?.value.trim() || missionData.mission.codename;
-            checkDuplicate(codename);
-            const { missionId } = await DB.importMissionData(missionData, qs('#import-codename')?.value.trim() || undefined);
-            return missionId;
+            const base = missionData.mission.codename;
+            const codename = this._dedupCodename(base, usedNames);
+            usedNames.add(codename.toLowerCase());
+            const { missionId } = await DB.importMissionData(missionData, codename !== base ? codename : undefined);
+            return { missionId, codename };
           };
+
+          const results = [];
           if (data.hackerhero && Array.isArray(data.missions)) {
-            for (const md of data.missions) await importSingle(md);
-            UI.toast(`Imported ${data.missions.length} operation(s)`, 'success');
+            for (const md of data.missions) results.push(await importSingle(md));
           } else if (data.mission) {
-            await importSingle(data);
-            UI.toast(`Imported: ${data.mission.codename}`, 'success');
+            results.push(await importSingle(data));
           } else { throw new Error('Unrecognized file format'); }
+
           UI.closeModal();
+          const names = results.map(r => r.codename).join(', ');
+          UI.toast(`Imported ${results.length} operation(s): ${names}`, 'success');
           if (_onImportDone) await _onImportDone();
         } catch (err) { UI.toast(`Import failed: ${err.message}`, 'error'); }
+      },
+    });
+  },
+
+  /**
+   * Per-operation update: import a JSON file and merge its data into a specific
+   * existing operation. Only the first mission in the file is used.
+   * @param {string} missionId  The target mission to merge into
+   */
+  openUpdateDialog(missionId) {
+    DB.getMission(missionId).then((mission) => {
+      if (!mission) { UI.toast('Operation not found', 'error'); return; }
+      UI.openModal({
+        title: `Update: ${escHtml(mission.codename)}`,
+        bodyHtml: `
+          <p class="text-dim" style="font-size:13px;margin-bottom:14px">
+            Select a JSON export file to <strong>merge</strong> into <strong>${escHtml(mission.codename)}</strong>.<br>
+            New zones, assets, data items, tickets, and changelog entries will be added.
+            Existing items are left unchanged.
+          </p>
+          <div class="form-group">
+            <label class="form-label">JSON File</label>
+            <input type="file" id="update-file" accept=".json" style="padding:6px;font-size:13px;cursor:pointer" />
+          </div>`,
+        confirmLabel: '🔀 Merge',
+        confirmClass: 'btn-primary',
+        onConfirm: async () => {
+          const file = qs('#update-file').files[0];
+          if (!file) { UI.toast('Please select a file', 'error'); return; }
+          try {
+            const text = await readFileAsText(file);
+            let data;
+            try { data = JSON.parse(text); } catch { UI.toast('Invalid JSON file', 'error'); return; }
+            // Extract the first mission from the file
+            let missionData;
+            if (data.hackerhero && Array.isArray(data.missions) && data.missions.length > 0) {
+              missionData = data.missions[0];
+            } else if (data.mission) {
+              missionData = data;
+            } else { throw new Error('Unrecognized file format'); }
+
+            const stats = await DB.mergeMissionData(missionId, missionData, missionData.mission?.codename || '');
+            UI.closeModal();
+            const parts = [];
+            if (stats.zones || stats.zonesUp)     parts.push(`+${stats.zones} / ↑${stats.zonesUp} zones`);
+            if (stats.assets || stats.assetsUp)   parts.push(`+${stats.assets} / ↑${stats.assetsUp} assets`);
+            if (stats.subitems || stats.subitemsUp) parts.push(`+${stats.subitems} / ↑${stats.subitemsUp} data`);
+            if (stats.tickets || stats.ticketsUp) parts.push(`+${stats.tickets} / ↑${stats.ticketsUp} tickets`);
+            if (stats.conflicts) parts.push(`⚠️ ${stats.conflicts} conflicts`);
+            UI.toast(`Updated "${mission.codename}": ${parts.join(', ') || 'no changes'}`, stats.conflicts ? 'warning' : 'success');
+            if (_onImportDone) await _onImportDone();
+          } catch (err) { UI.toast(`Update failed: ${err.message}`, 'error'); }
+        },
+      });
+    });
+  },
+
+  /**
+   * Merge two existing operations: the user picks a source and a target,
+   * then source data is merged into target.
+   */
+  async openMergeDialog() {
+    const missions = await DB.getAllMissions();
+    if (missions.length < 2) { UI.toast('You need at least 2 operations to merge', 'error'); return; }
+    const options = missions.map(m =>
+      `<option value="${m.id}">${escHtml(m.codename)}</option>`
+    ).join('');
+    UI.openModal({
+      title: 'Merge Operations',
+      bodyHtml: `
+        <p class="text-dim" style="font-size:13px;margin-bottom:14px">
+          Merge data from a <strong>source</strong> operation into a <strong>target</strong> operation.<br>
+          New zones, assets, data items, tickets, and changelog are added to the target.
+          The source operation can optionally be deleted after the merge.
+        </p>
+        <div class="form-group">
+          <label class="form-label">Source operation <span class="form-hint">(data will be read from here)</span></label>
+          <select id="merge-source">${options}</select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Target operation <span class="form-hint">(data will be merged into here)</span></label>
+          <select id="merge-target">${missions.length > 1
+            ? missions.map((m, i) => `<option value="${m.id}"${i === 1 ? ' selected' : ''}>${escHtml(m.codename)}</option>`).join('')
+            : options}</select>
+        </div>
+        <div class="form-group" style="margin-top:8px">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+            <input type="checkbox" id="merge-delete-source" />
+            Delete source operation after merge
+          </label>
+        </div>`,
+      confirmLabel: '🔀 Merge',
+      confirmClass: 'btn-primary',
+      onConfirm: async () => {
+        const srcId = qs('#merge-source').value;
+        const tgtId = qs('#merge-target').value;
+        const deleteSource = qs('#merge-delete-source').checked;
+        if (srcId === tgtId) { UI.toast('Source and target must be different', 'error'); return; }
+        try {
+          const srcData = await DB.exportMissionData(srcId);
+          const stats = await DB.mergeMissionData(tgtId, srcData, srcData.mission?.codename || '');
+          const srcMission = await DB.getMission(srcId);
+          const tgtMission = await DB.getMission(tgtId);
+          if (deleteSource) {
+            if (State.activeMission?.id === srcId) {
+              State.activeMission = null;
+              localStorage.removeItem('hh-activeMissionId');
+            }
+            await DB.deleteMission(srcId);
+          }
+          UI.closeModal();
+          const p = [];
+          if (stats.zones || stats.zonesUp)     p.push(`+${stats.zones}/↑${stats.zonesUp}z`);
+          if (stats.assets || stats.assetsUp)   p.push(`+${stats.assets}/↑${stats.assetsUp}a`);
+          if (stats.subitems || stats.subitemsUp) p.push(`+${stats.subitems}/↑${stats.subitemsUp}d`);
+          if (stats.tickets || stats.ticketsUp) p.push(`+${stats.tickets}/↑${stats.ticketsUp}t`);
+          if (stats.conflicts) p.push(`⚠️${stats.conflicts} conflicts`);
+          UI.toast(
+            `Merged "${srcMission?.codename}" → "${tgtMission?.codename}": ${p.join(' ') || 'no changes'}${deleteSource ? ' (source deleted)' : ''}`,
+            stats.conflicts ? 'warning' : 'success'
+          );
+          if (_onImportDone) await _onImportDone();
+        } catch (err) { UI.toast(`Merge failed: ${err.message}`, 'error'); }
       },
     });
   },

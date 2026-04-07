@@ -374,6 +374,21 @@ h3 { font-size: 15px; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: pointer;
+}
+.badge-name:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+.inline-rename-input {
+  background: var(--c-bg2);
+  color: var(--c-accent);
+  border: 1px solid var(--c-accent);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: inherit;
+  padding: 1px 6px;
+  width: 180px;
+  outline: none;
 }
 
 /* Timezone clock inside mission badge */
@@ -1856,6 +1871,10 @@ textarea { resize: vertical; min-height: 80px; }
 .changelog-entry:hover { background: var(--c-bg3); }
 .cl-entry-link { cursor: pointer; }
 .cl-entry-link:hover .cl-desc { color: var(--c-accent); text-decoration: underline; text-underline-offset: 2px; }
+.changelog-entry.cl-merge-entry { border-left: 3px solid var(--c-accent2); padding-left: 11px; background: color-mix(in srgb, var(--c-accent2) 5%, transparent); }
+.changelog-entry.cl-merge-summary { font-weight: 600; background: color-mix(in srgb, var(--c-accent2) 10%, transparent); }
+.cl-merge-badge { font-size: 12px; }
+.cl-action.merge { color: var(--c-accent2); }
 
 .cl-timestamp { color: var(--c-text3); flex-shrink: 0; width: 130px; font-size: 11px; padding-top: 2px; }
 .cl-operator  { color: var(--c-accent2); flex-shrink: 0; width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

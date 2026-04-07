@@ -7,8 +7,8 @@ import {
   State, DB, UI, ThemeManager, ImportExport,
   showPanel, enableMissionNav, TZClock,
   getRandomCreatureName, escHtml, qs, qsa,
-} from './core.js?v=20260406u';
-import { loadDemoData, clearDemoData, isDemoLoaded } from './demo-data.js?v=20260406u';
+} from './core.js?v=20260407g';
+import { loadDemoData, clearDemoData, isDemoLoaded } from './demo-data.js?v=20260407g';
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  SETTINGS PANEL

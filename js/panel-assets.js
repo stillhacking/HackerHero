@@ -18,7 +18,7 @@ import {
   debounce, qs, qsa, el, deepClone,
   readFileAsDataURL, createThumbnail,
   renderAttachmentStrip, Lightbox,
-} from './core.js?v=20260406u';
+} from './core.js?v=20260407g';
 
 // ── Lazy reference to TicketsPanel (set by app.js after import) ─────────
 let _TicketsPanel = null;
@@ -655,7 +655,7 @@ export const AssetsPanel = {
         <div class="data-tree-item ${State.selectedSubitemId === s.id ? 'selected' : ''}" data-sid="${s.id}" data-asset-id="${assetId}" data-statuses="${nSt.join(',')}" data-has-tickets="${siHasTickets ? '1' : ''}" data-zone-name="${escHtml(zoneName)}">
           <span class="data-tree-toggle ${children.length ? 'has-children' : 'invisible'}" data-dtoggle="${s.id}">▶</span>
           <span class="tree-icon tree-icon-sm ${children.length ? 'has-children' : ''}">${subitemIcon(s)}</span>
-          ${nSt.map(st => { const st2 = ASSET_STATUSES[st]; return st2 ? `<span class="asset-status-badge" style="background:${st2.color}22;color:${st2.color};border:1px solid ${st2.color}44" title="${st2.label}">${st2.icon}</span>` : ''; }).join('')}<span class="data-tree-label">${escHtml(s.name)}</span>
+          ${nSt.map(st => { const st2 = ASSET_STATUSES[st]; return st2 ? `<span class="asset-status-badge" style="background:${st2.color}22;color:${st2.color};border:1px solid ${st2.color}44" title="${st2.label}">${st2.icon}</span>` : ''; }).join('')}${s.mergeConflict ? '<span style="color:#facc15;font-size:12px;margin-left:2px" title="Merge conflict — click to review">⚠️</span>' : ''}<span class="data-tree-label">${escHtml(s.name)}</span>
           <div class="data-tree-actions">
             <button class="btn btn-ghost btn-xs" data-action="add-subdata" data-sid="${s.id}" data-asset-id="${assetId}" title="Add sub-data">+</button>
             <button class="btn btn-ghost btn-xs" data-action="edit-subitem" data-sid="${s.id}" data-asset-id="${assetId}" title="Edit">✎</button>
@@ -1074,7 +1074,7 @@ export const AssetsPanel = {
         siEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       }
     } else if (entityType === 'ticket') {
-      const { TicketsPanel } = await import('./panel-tickets.js?v=20260406u');
+      const { TicketsPanel } = await import('./panel-tickets.js?v=20260407g');
       TicketsPanel._viewingTicketId = entityId;
       showPanel('tickets');
       await TicketsPanel.render();
@@ -1086,6 +1086,7 @@ export const AssetsPanel = {
   async showAssetDetail(assetId) {
     const asset = await DB.getAsset(assetId);
     if (!asset) return;
+    if (State.activeMission && asset.missionId !== State.activeMission.id) return;
     const viewer = qs('#data-viewer-pane');
     if (!viewer) return;
     const zoneNames = [];
@@ -1187,25 +1188,67 @@ export const AssetsPanel = {
   async showSubitemContent(subitemId) {
     const s = await DB.getSubitem(subitemId);
     if (!s) return;
+    if (State.activeMission) {
+      const parentAsset = await DB.getAsset(s.assetId);
+      if (parentAsset && parentAsset.missionId !== State.activeMission.id) return;
+    }
     const viewer = qs('#data-viewer-pane');
     if (!viewer) return;
 
     let _appliedParserId   = s.parsedType || null;
     let _appliedParsedData = s.parsedData || null;
+    const hasConflict      = !!s.mergeConflict;
+
+    // Build optional conflict banner HTML
+    let conflictBannerHtml = '';
+    let conflictDiffHtml   = '';
+    if (hasConflict) {
+      const mc = s.mergeConflict;
+      const winnerLabel = mc.winner === 'source' ? 'imported file (newer)' : 'local data (newer)';
+      const loserLabel  = mc.winner === 'source' ? 'local data' : 'imported file';
+      const loserContent = mc.content || '';
+      const currentContent = s.content || '';
+      // Build diff
+      const diffResult = this._diffLines(loserContent, currentContent);
+      conflictDiffHtml = diffResult.map(d => {
+        if (d.type === 'removed') return `<div class="diff-line" style="background:rgba(248,113,113,.25);color:#f87171;text-decoration:line-through"><span class="diff-prefix" style="color:#f87171">−</span>${escHtml(d.text || '')}</div>`;
+        if (d.type === 'added')   return `<div class="diff-line" style="background:rgba(74,222,128,.2);color:#4ade80"><span class="diff-prefix" style="color:#4ade80">+</span>${escHtml(d.text || '')}</div>`;
+        return `<div class="diff-line diff-equal"><span class="diff-prefix"> </span>${escHtml(d.text || '')}</div>`;
+      }).join('');
+
+      conflictBannerHtml = `
+        <div id="dv-conflict-banner" style="padding:10px 16px;background:rgba(250,204,21,.12);border-bottom:2px solid rgba(250,204,21,.5);font-size:12px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+            <span style="font-size:16px">⚠️</span>
+            <strong style="color:#facc15">Merge conflict</strong>
+            <span class="text-dim">— current content from <b>${escHtml(winnerLabel)}</b>, discarded version from <b>${escHtml(loserLabel)}</b> (${escHtml(mc.operator)}, ${mc.timestamp ? formatDate(mc.timestamp) : '?'})</span>
+          </div>
+          <details id="dv-conflict-details" style="margin-top:4px">
+            <summary style="cursor:pointer;font-size:11px;color:var(--c-text3);user-select:none">Show conflict diff (${escHtml(loserLabel)} → current)</summary>
+            <div class="diff-view" style="max-height:300px;overflow:auto;margin-top:6px;border:1px solid var(--c-border);border-radius:4px">${conflictDiffHtml}</div>
+            <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn btn-secondary btn-xs" id="dv-conflict-use-other">↩ Use discarded version</button>
+              <button class="btn btn-primary btn-xs" id="dv-conflict-accept">✓ Accept current (resolve conflict)</button>
+            </div>
+          </details>
+        </div>`;
+    }
 
     viewer.innerHTML = `
       <div class="data-viewer-header" style="padding:12px 16px;border-bottom:1px solid var(--c-border);flex-shrink:0">
         <div style="display:flex;align-items:center;gap:8px">
           <span id="dv-si-icon-btn" class="asset-icon-pick-btn" title="Change icon">${subitemIcon(s)}</span>
           <input type="text" id="dv-si-name" value="${escHtml(s.name)}" style="flex:1;font-weight:600;font-size:14px" />
+          ${hasConflict ? '<span style="color:#facc15;font-size:14px" title="Merge conflict — review below">⚠️</span>' : ''}
           <button class="btn btn-ghost btn-xs" id="dv-ticket-si" title="Create ticket">🎫</button>
           <button class="btn btn-ghost btn-xs" id="dv-copy-si" title="Copy content">📋</button>
           <button class="btn btn-ghost btn-xs text-danger" id="dv-del-si" title="Delete">✕</button>
         </div>
         <div class="data-viewer-meta">
-          Added by <b>${escHtml(s.createdBy)}</b> · ${timeAgo(s.createdAt)}
+          Added by <b>${escHtml(s.createdBy)}</b> · ${timeAgo(s.createdAt)}${s.updatedBy ? ` · Updated by <b>${escHtml(s.updatedBy)}</b> ${timeAgo(s.updatedAt)}` : ''}
         </div>
       </div>
+      ${conflictBannerHtml}
       <div id="dv-si-attachments" style="padding:0 16px"></div>
       <div id="dv-content-zone" style="flex:1;display:flex;flex-direction:column;overflow:hidden">
         <div id="dv-diff-top-header" class="diff-header" style="display:none"></div>
@@ -1365,6 +1408,10 @@ export const AssetsPanel = {
       s.statuses   = [...qsa('.dv-status-cb:checked')].map(cb => cb.value);
       s.parsedType = _appliedParserId;
       s.parsedData = _appliedParsedData;
+      s.updatedAt  = now();
+      s.updatedBy  = State.operatorName;
+      // Clear merge conflict flag on manual save (user resolves by editing)
+      if (s.mergeConflict) delete s.mergeConflict;
       if (!_manualIcon) {
         const resolvedIcon = _autoIconId || (_appliedParserId ? PARSER_ICON_MAP[_appliedParserId] : null) || detectIpIcon(name);
         if (resolvedIcon) s.icon = resolvedIcon;
@@ -1392,6 +1439,8 @@ export const AssetsPanel = {
         _autoIconId = null;
         const prev = deepClone(s);
         s.icon = iconId;
+        s.updatedAt = now();
+        s.updatedBy = State.operatorName;
         await DB.saveSubitem(s);
         await logChange('update', 'subitem', s.id, s.name, `Changed icon to "${iconId || 'default'}"`, prev, s);
         if (State.selectedZoneId) await this.renderAssets(this._zoneForRender());
@@ -1406,6 +1455,35 @@ export const AssetsPanel = {
     qs('#dv-ticket-si')?.addEventListener('click', () => {
       if (_TicketsPanel) _TicketsPanel.openCreateTicketModal('subitem', s.id, s.name);
     });
+
+    // ── Conflict resolution handlers ────────────────────────────────────
+    if (hasConflict) {
+      qs('#dv-conflict-accept')?.addEventListener('click', async () => {
+        delete s.mergeConflict;
+        s.updatedAt = now();
+        s.updatedBy = State.operatorName;
+        await DB.saveSubitem(s);
+        UI.toast('Conflict resolved — current version accepted', 'success');
+        if (State.selectedZoneId) await this.renderAssets(this._zoneForRender());
+        await this.showSubitemContent(s.id);
+      });
+      qs('#dv-conflict-use-other')?.addEventListener('click', async () => {
+        const mc = s.mergeConflict;
+        // Snapshot current state
+        await DB.saveSubitemVersion({
+          id: generateId(), subitemId: s.id, timestamp: now(),
+          operator: State.operatorName, state: deepClone(s),
+        });
+        s.content = mc.content;
+        delete s.mergeConflict;
+        s.updatedAt = now();
+        s.updatedBy = State.operatorName;
+        await DB.saveSubitem(s);
+        UI.toast('Conflict resolved — switched to other version', 'success');
+        if (State.selectedZoneId) await this.renderAssets(this._zoneForRender());
+        await this.showSubitemContent(s.id);
+      });
+    }
 
     if (!this._keyboardNav) qs('#dv-si-content')?.focus();
   },
@@ -1700,7 +1778,7 @@ export const AssetsPanel = {
         state: deepClone(current),
       };
       await DB.saveSubitemVersion(snapshot);
-      await DB.saveSubitem({ ...ver.state, id: subitemId });
+      await DB.saveSubitem({ ...ver.state, id: subitemId, assetId: current.assetId });
       await logChange('update', 'subitem', subitemId, ver.state.name, `Restored data item to version from ${formatDate(ver.timestamp)}`, current, ver.state);
       UI.closeModal();
       UI.toast('Data item restored', 'success');
@@ -2052,6 +2130,8 @@ export const AssetsPanel = {
             statuses:   [...qsa('.fm-si-status-cb:checked')].map(cb => cb.value),
             createdAt:  s.createdAt || now(),
             createdBy:  s.createdBy || State.operatorName,
+            updatedAt:  now(),
+            updatedBy:  State.operatorName,
           };
           await DB.saveSubitem(subitem);
           if (!id) await logChange('create', 'subitem', subitem.id, subitem.name, `Added data item "${subitem.name}" to asset`, null, subitem);
@@ -2171,7 +2251,7 @@ export const AssetsPanel = {
       const current  = await DB.getAsset(assetId);
       const snapshot = { id: generateId(), assetId, timestamp: now(), operator: State.operatorName, state: deepClone(current) };
       await DB.saveAssetVersion(snapshot);
-      await DB.saveAsset({ ...ver.state, updatedAt: now(), updatedBy: State.operatorName });
+      await DB.saveAsset({ ...ver.state, id: assetId, missionId: current.missionId, updatedAt: now(), updatedBy: State.operatorName });
       await logChange('update', 'asset', assetId, ver.state.name, `Restored asset to version from ${formatDate(ver.timestamp)}`, current, ver.state);
       UI.closeModal();
       UI.toast('Asset restored to previous version', 'success');

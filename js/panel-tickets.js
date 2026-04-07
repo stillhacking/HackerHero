@@ -10,11 +10,11 @@ import {
   ASSET_ICON_MAP,
   MAX_ATTACHMENT_SIZE,
   renderMarkdown,
-} from './core.js?v=20260406u';
+} from './core.js?v=20260407g';
 import {
   ASSET_ICON, assetIcon, subitemIcon, ASSET_STATUSES,
   AssetsPanel, TICKET_PRIORITIES,
-} from './panel-assets.js?v=20260406u';
+} from './panel-assets.js?v=20260407g';
 
 // ── Forum post avatar helpers ──────────────────────────────────────────────
 const _POST_COLORS = ['#7c3aed','#2563eb','#059669','#d97706','#dc2626','#db2777','#0891b2','#65a30d','#9333ea','#0284c7'];

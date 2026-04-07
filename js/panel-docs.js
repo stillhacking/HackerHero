@@ -3,7 +3,7 @@
  * @module panel-docs
  */
 
-import { qs, qsa } from './core.js?v=20260406u';
+import { qs, qsa } from './core.js?v=20260407g';
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  DOCS PANEL
@@ -70,7 +70,8 @@ export const DocsPanel = {
       <li><strong>Stack</strong>: Vanilla JavaScript ES modules — no framework, no build step, no dependencies.</li>
       <li><strong>Storage</strong>: IndexedDB v7 with 11 object stores and Promise-based API.</li>
       <li><strong>Styling</strong>: Pure CSS with custom properties. 8 themes via <code>[data-theme]</code>.</li>
-      <li><strong>Serving</strong>: Any static HTTP server (<code>python3 -m http.server 8000</code>).</li>
+      <li><strong>Serving</strong>: Any static HTTP server (<code>python3 -m http.server 8000</code>) or Docker (<code>nginx:alpine</code>).</li>
+      <li><strong>Docker</strong>: <code>docker build -t hackerhero . &amp;&amp; docker run -d -p 8080:80 hackerhero</code></li>
       <li><strong>Browser</strong>: Chrome, Firefox, Edge, Safari (modern ES module support required).</li>
     </ul>`,
 
@@ -390,7 +391,26 @@ State = {
 }</pre>
 
     <h3>Changelog & Revert System</h3>
-    <p>Every DB mutation is followed by a call to <code>logChange(action, entityType, entityId, entityName, description, previousState, newState)</code>. This creates a ChangelogEntry with full object snapshots. The revert system restores <code>previousState</code> by calling the appropriate DB save/delete method.</p>`,
+    <p>Every DB mutation is followed by a call to <code>logChange(action, entityType, entityId, entityName, description, previousState, newState)</code>. This creates a ChangelogEntry with full object snapshots. The revert system restores <code>previousState</code> by calling the appropriate DB save/delete method.</p>
+
+    <h3>Deployment</h3>
+    <h4>Option 1 — Python (development)</h4>
+    <pre>cd HackerHero
+python3 -m http.server 8000
+# open http://localhost:8000</pre>
+
+    <h4>Option 2 — Docker (recommended for shared lab environments)</h4>
+    <pre># Build the image
+docker build -t hackerhero .
+
+# Run the container
+docker run -d -p 8080:80 --name hackerhero hackerhero
+
+# open http://localhost:8080
+
+# Stop / remove
+docker stop hackerhero &amp;&amp; docker rm hackerhero</pre>
+    <p><strong>Note:</strong> Data is stored in the <em>browser's</em> IndexedDB — not inside the container. The container is stateless. Use <strong>Export All</strong> to back up your data before removing the container or switching browsers.</p>`,
 
   /* ──────────────────────────── SOURCE CODE ─────────────────────────────── */
   _code: () => `
@@ -398,6 +418,7 @@ State = {
     <pre style="font-size:12px;line-height:1.8">
 HackerHero/
 ├── index.html              HTML shell (8 panels, sidebar, modal, overlays)
+├── Dockerfile              Docker image (nginx:alpine, port 80)
 ├── css/
 │   └── app.css             All styles + 8 themes (~3,460 lines)
 ├── js/

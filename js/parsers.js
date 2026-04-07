@@ -2586,16 +2586,6 @@ const PS_FAUX = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  PARSER REGISTRY
-//  To add a new parser: append your parser object to this array.
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Ordered list of all available parsers.
- * The autodetect function tries each in sequence and picks the highest scorer.
- * @type {ParserDef[]}
- */
-// ─────────────────────────────────────────────────────────────────────────────
 //  PLAIN IP ADDRESS PARSERS
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -3024,6 +3014,1552 @@ const EMAIL_BODY = {
   suggestItemName() { return 'Email Signature'; },
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  RECON & SUBDOMAIN DISCOVERY
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Amass enum / intel output */
+const AMASS = {
+  id: 'amass', label: 'Amass', icon: '🗺️',
+  detect(text) {
+    let s = 0;
+    if (/amass\s+(enum|intel)/i.test(text)) s += 0.5;
+    if (/\bOWASP\b/i.test(text) && /amass/i.test(text)) s += 0.3;
+    if (/^\S+\.\S+\.\S+$/m.test(text) && text.split('\n').filter(l => /^\S+\.\S+\.\S+$/.test(l.trim())).length > 3) s += 0.3;
+    if (/\(FQDN\)/i.test(text)) s += 0.3;
+    if (/Querying\s/i.test(text) && /data sources/i.test(text)) s += 0.2;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const domains = [];
+    for (const line of text.split('\n')) {
+      const l = line.trim();
+      if (!l || l.startsWith('#') || /^(\[|amass|OWASP|Querying)/i.test(l)) continue;
+      const m = l.match(/^([\w.-]+\.\w{2,})(?:\s|$)/);
+      if (m) domains.push(m[1].toLowerCase());
+    }
+    return { domains: [...new Set(domains)], count: new Set(domains).size };
+  },
+  suggestName(pd) { return pd.domains?.[0]?.split('.').slice(-2).join('.') || null; },
+  suggestItemName() { return 'amass enum'; },
+};
+
+/** Subfinder output (one domain per line) */
+const SUBFINDER = {
+  id: 'subfinder', label: 'Subfinder', icon: '🔎',
+  detect(text) {
+    let s = 0;
+    if (/subfinder/i.test(text)) s += 0.5;
+    if (/projectdiscovery/i.test(text)) s += 0.2;
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    const domainLines = lines.filter(l => /^[\w.-]+\.\w{2,}$/.test(l));
+    if (domainLines.length > 5 && domainLines.length / lines.length > 0.7) s += 0.4;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const domains = text.split('\n').map(l => l.trim()).filter(l => /^[\w.-]+\.\w{2,}$/.test(l)).map(d => d.toLowerCase());
+    return { domains: [...new Set(domains)], count: new Set(domains).size };
+  },
+  suggestName(pd) { return pd.domains?.[0]?.split('.').slice(-2).join('.') || null; },
+  suggestItemName() { return 'subfinder'; },
+};
+
+/** Github-Subdomains output */
+const GITHUB_SUBDOMAINS = {
+  id: 'github_subdomains', label: 'Github-Subdomains', icon: '🐙',
+  detect(text) {
+    let s = 0;
+    if (/github.subdomains|github-subdomains/i.test(text)) s += 0.6;
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    const domainLines = lines.filter(l => /^[\w.-]+\.\w{2,}$/.test(l));
+    if (domainLines.length > 3 && domainLines.length / lines.length > 0.8) s += 0.3;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const domains = text.split('\n').map(l => l.trim()).filter(l => /^[\w.-]+\.\w{2,}$/.test(l)).map(d => d.toLowerCase());
+    return { domains: [...new Set(domains)], count: new Set(domains).size };
+  },
+  suggestName(pd) { return pd.domains?.[0]?.split('.').slice(-2).join('.') || null; },
+  suggestItemName() { return 'github-subdomains'; },
+};
+
+/** dig output parser */
+const DIG = {
+  id: 'dig', label: 'dig', icon: '🔍',
+  detect(text) {
+    let s = 0;
+    if (/^;\s*<<>>\s*DiG\s/m.test(text)) s += 0.7;
+    if (/;;\s*ANSWER SECTION/i.test(text)) s += 0.3;
+    if (/;;\s*QUESTION SECTION/i.test(text)) s += 0.2;
+    if (/;;\s*Query time/i.test(text)) s += 0.2;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const records = [];
+    let inAnswer = false;
+    for (const line of text.split('\n')) {
+      if (/^;;\s*ANSWER SECTION/i.test(line)) { inAnswer = true; continue; }
+      if (inAnswer && /^;;/.test(line)) { inAnswer = false; continue; }
+      if (inAnswer) {
+        const m = line.match(/^(\S+)\s+(\d+)\s+IN\s+(\w+)\s+(.+)/);
+        if (m) records.push({ name: m[1], ttl: Number(m[2]), type: m[3], value: m[4].trim() });
+      }
+    }
+    const server = (text.match(/;;\s*SERVER:\s*(\S+)/i) || [])[1] || null;
+    const queryTime = (text.match(/;;\s*Query time:\s*(\d+\s*\w+)/i) || [])[1] || null;
+    return { records, server, queryTime, count: records.length };
+  },
+  suggestName(pd) { return pd.records?.[0]?.name?.replace(/\.$/, '') || null; },
+  suggestItemName() { return 'dig'; },
+};
+
+/** ShuffleDNS / PureDNS / MassDNS output (resolved domains) */
+const MASS_DNS = {
+  id: 'mass_dns', label: 'MassDNS / ShuffleDNS / PureDNS', icon: '📡',
+  detect(text) {
+    let s = 0;
+    if (/shuffledns|puredns|massdns/i.test(text)) s += 0.5;
+    // massdns format: domain. type value
+    if (/^\S+\.\s+(A|AAAA|CNAME)\s+\S+/m.test(text)) s += 0.4;
+    // plain resolved list
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    const domainLines = lines.filter(l => /^[\w.-]+\.\w{2,}$/.test(l));
+    if (domainLines.length > 10 && domainLines.length / lines.length > 0.8) s += 0.3;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const resolved = [];
+    for (const line of text.split('\n')) {
+      const l = line.trim();
+      if (!l) continue;
+      // massdns format: domain. A 1.2.3.4
+      const m = l.match(/^([\w.-]+\.)\s+(A|AAAA|CNAME)\s+(.+)/);
+      if (m) { resolved.push({ domain: m[1].replace(/\.$/, ''), type: m[2], value: m[3].trim() }); continue; }
+      // plain domain
+      if (/^[\w.-]+\.\w{2,}$/.test(l)) resolved.push({ domain: l.toLowerCase(), type: 'resolved', value: '' });
+    }
+    return { resolved, count: resolved.length };
+  },
+  suggestName(pd) { return pd.resolved?.[0]?.domain?.split('.').slice(-2).join('.') || null; },
+  suggestItemName() { return 'dns bruteforce'; },
+};
+
+/** Dnsgen output (permutation wordlist — domains) */
+const DNSGEN = {
+  id: 'dnsgen', label: 'Dnsgen', icon: '🧬',
+  detect(text) {
+    let s = 0;
+    if (/dnsgen/i.test(text)) s += 0.5;
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    const dl = lines.filter(l => /^[\w.-]+\.\w{2,}$/.test(l));
+    if (dl.length > 20 && dl.length / lines.length > 0.95) s += 0.3;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const domains = text.split('\n').map(l => l.trim()).filter(l => /^[\w.-]+\.\w{2,}$/.test(l));
+    return { domains: [...new Set(domains)], count: new Set(domains).size };
+  },
+  suggestName(pd) { return pd.domains?.[0]?.split('.').slice(-2).join('.') || null; },
+  suggestItemName() { return 'dnsgen'; },
+};
+
+/** DNSX output (resolver / enumeration) */
+const DNSX = {
+  id: 'dnsx', label: 'DNSX', icon: '📡',
+  detect(text) {
+    let s = 0;
+    if (/dnsx/i.test(text) && /projectdiscovery/i.test(text)) s += 0.5;
+    // dnsx output: domain [A] [1.2.3.4]
+    if (/\[A\]|\[AAAA\]|\[CNAME\]|\[MX\]/i.test(text)) s += 0.3;
+    if (/^\S+\.\S+\s+\[/m.test(text)) s += 0.3;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const records = [];
+    for (const line of text.split('\n')) {
+      const m = line.match(/^([\w.-]+)\s+\[(\w+)\]\s+\[([^\]]+)\]/);
+      if (m) records.push({ domain: m[1], type: m[2], value: m[3] });
+    }
+    // also plain domain lines
+    if (!records.length) {
+      for (const line of text.split('\n')) {
+        const l = line.trim();
+        if (/^[\w.-]+\.\w{2,}$/.test(l)) records.push({ domain: l, type: 'A', value: '' });
+      }
+    }
+    return { records, count: records.length };
+  },
+  suggestName(pd) { return pd.records?.[0]?.domain?.split('.').slice(-2).join('.') || null; },
+  suggestItemName() { return 'dnsx'; },
+};
+
+/** Hakrevdns — reverse DNS lookups */
+const HAKREVDNS = {
+  id: 'hakrevdns', label: 'Hakrevdns', icon: '🔄',
+  detect(text) {
+    let s = 0;
+    if (/hakrevdns/i.test(text)) s += 0.5;
+    // format: IP\tPTR
+    const lines = text.split('\n').filter(l => /^\d+\.\d+\.\d+\.\d+\s+\S+/.test(l.trim()));
+    if (lines.length > 3) s += 0.4;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const results = [];
+    for (const line of text.split('\n')) {
+      const m = line.trim().match(/^(\d+\.\d+\.\d+\.\d+)\s+([\w.-]+)/);
+      if (m) results.push({ ip: m[1], ptr: m[2].replace(/\.$/, '') });
+    }
+    return { results, count: results.length };
+  },
+  suggestName(pd) { return pd.results?.[0]?.ptr || pd.results?.[0]?.ip || null; },
+  suggestItemName() { return 'hakrevdns'; },
+};
+
+/** Prips — IP range expansion */
+const PRIPS = {
+  id: 'prips', label: 'Prips', icon: '📋',
+  detect(text) {
+    let s = 0;
+    if (/prips/i.test(text)) s += 0.4;
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    const ips = lines.filter(l => /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(l));
+    if (ips.length > 10 && ips.length / lines.length > 0.9) s += 0.4;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const ips = text.split('\n').map(l => l.trim()).filter(l => /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(l));
+    return { ips, count: ips.length };
+  },
+  suggestName(pd) { return pd.ips?.length ? `${pd.ips[0]}-${pd.ips[pd.ips.length - 1]}` : null; },
+  suggestItemName() { return 'prips'; },
+};
+
+/** Certstream / certstream-go — certificate transparency log watcher */
+const CERTSTREAM = {
+  id: 'certstream', label: 'Certstream', icon: '📜',
+  detect(text) {
+    let s = 0;
+    if (/certstream/i.test(text)) s += 0.5;
+    if (/certificate_update|leaf_cert|all_domains/i.test(text)) s += 0.3;
+    if (/\"message_type\"/i.test(text) && /\"data\"/i.test(text)) s += 0.3;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const domains = new Set();
+    // JSON-line format
+    for (const line of text.split('\n')) {
+      try {
+        const obj = JSON.parse(line);
+        for (const d of (obj?.data?.leaf_cert?.all_domains || obj?.all_domains || [])) {
+          if (d && d !== '*.') domains.add(d.replace(/^\*\./, '').toLowerCase());
+        }
+      } catch { /* plain text fallback */ }
+      const m = line.match(/(?:CN|DNS)[=:]([^\s,]+)/gi);
+      if (m) m.forEach(hit => { const v = hit.split(/[=:]/)[1]; if (v) domains.add(v.replace(/^\*\./, '').toLowerCase()); });
+    }
+    return { domains: [...domains], count: domains.size };
+  },
+  suggestName(pd) { return pd.domains?.[0]?.split('.').slice(-2).join('.') || null; },
+  suggestItemName() { return 'certstream'; },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  HTTP PROBING & WEB ANALYSIS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Httpx output (ProjectDiscovery) */
+const HTTPX = {
+  id: 'httpx', label: 'Httpx', icon: '🌐',
+  detect(text) {
+    let s = 0;
+    if (/httpx/i.test(text) && /projectdiscovery/i.test(text)) s += 0.5;
+    // JSON-line with status_code + url
+    if (/\"status.code\"\s*:\s*\d{3}/i.test(text) && /\"url\"/i.test(text)) s += 0.4;
+    // plain: http(s)://host [200] [title]
+    if (/^https?:\/\/\S+\s+\[\d{3}\]/m.test(text)) s += 0.5;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const results = [];
+    for (const line of text.split('\n')) {
+      const l = line.trim();
+      if (!l) continue;
+      // JSON format
+      try {
+        const obj = JSON.parse(l);
+        if (obj.url || obj.input) {
+          results.push({
+            url: obj.url || obj.input,
+            status: obj.status_code || obj.status || 0,
+            title: obj.title || '',
+            tech: obj.tech || [],
+            contentLength: obj.content_length || 0,
+            webServer: obj.webserver || '',
+          });
+          continue;
+        }
+      } catch { /* not JSON */ }
+      // Plain format: https://host [200] [title] [tech]
+      const m = l.match(/^(https?:\/\/\S+)\s+\[(\d{3})\](?:\s+\[([^\]]*)\])?(?:\s+\[([^\]]*)\])?/);
+      if (m) results.push({ url: m[1], status: Number(m[2]), title: m[3] || '', tech: m[4] ? m[4].split(',').map(t => t.trim()) : [] });
+    }
+    return { results, count: results.length };
+  },
+  suggestName(pd) { try { return new URL(pd.results?.[0]?.url).hostname; } catch { return null; } },
+  suggestItemName() { return 'httpx'; },
+};
+
+/** Httprobe output (alive hosts) */
+const HTTPROBE = {
+  id: 'httprobe', label: 'Httprobe', icon: '🏓',
+  detect(text) {
+    let s = 0;
+    if (/httprobe/i.test(text)) s += 0.5;
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    const urlLines = lines.filter(l => /^https?:\/\/[\w.-]+/.test(l) && !/\s/.test(l));
+    if (urlLines.length > 3 && urlLines.length / lines.length > 0.8) s += 0.4;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const urls = text.split('\n').map(l => l.trim()).filter(l => /^https?:\/\/[\w.-]+/.test(l));
+    const hosts = [...new Set(urls.map(u => { try { return new URL(u).hostname; } catch { return u; } }))];
+    return { urls, hosts, count: urls.length };
+  },
+  suggestName(pd) { return pd.hosts?.[0] || null; },
+  suggestItemName() { return 'httprobe'; },
+};
+
+/** TLSX — TLS cert grabber (ProjectDiscovery) */
+const TLSX = {
+  id: 'tlsx', label: 'TLSX', icon: '🔒',
+  detect(text) {
+    let s = 0;
+    if (/tlsx/i.test(text) && /projectdiscovery/i.test(text)) s += 0.5;
+    if (/\"tls_version\"/i.test(text) || /\"subject_dn\"/i.test(text)) s += 0.4;
+    if (/\"host\"\s*:\s*\"/i.test(text) && /\"port\"\s*:\s*\d/i.test(text)) s += 0.3;
+    // plain: host:port [version] [cipher]
+    if (/^\S+:\d+\s+\[TLS/m.test(text)) s += 0.4;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const results = [];
+    for (const line of text.split('\n')) {
+      const l = line.trim();
+      if (!l) continue;
+      try {
+        const obj = JSON.parse(l);
+        if (obj.host) {
+          results.push({
+            host: obj.host, port: obj.port || 443,
+            version: obj.tls_version || obj.version || '',
+            cipher: obj.cipher || '',
+            subject: obj.subject_dn || obj.subject_cn || '',
+            issuer: obj.issuer_dn || obj.issuer_cn || '',
+            san: obj.subject_an || [],
+            expired: obj.expired || false,
+          });
+          continue;
+        }
+      } catch { /* not JSON */ }
+      const m = l.match(/^([\w.-]+):(\d+)\s+\[([^\]]+)\]/);
+      if (m) results.push({ host: m[1], port: Number(m[2]), version: m[3], cipher: '', subject: '', issuer: '' });
+    }
+    return { results, count: results.length };
+  },
+  suggestName(pd) { return pd.results?.[0]?.host || null; },
+  suggestItemName() { return 'tlsx'; },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  WEB CRAWLING & URL DISCOVERY
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Katana — web crawler (ProjectDiscovery) */
+const KATANA = {
+  id: 'katana', label: 'Katana', icon: '🗡️',
+  detect(text) {
+    let s = 0;
+    if (/katana/i.test(text) && /projectdiscovery/i.test(text)) s += 0.5;
+    if (/\"endpoint\"/i.test(text) && /\"source\"/i.test(text)) s += 0.3;
+    // plain URL list (http) with high density
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    const urlLines = lines.filter(l => /^https?:\/\//i.test(l));
+    if (urlLines.length > 5 && urlLines.length / lines.length > 0.7) s += 0.3;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const urls = [];
+    for (const line of text.split('\n')) {
+      const l = line.trim();
+      if (!l) continue;
+      try {
+        const obj = JSON.parse(l);
+        if (obj.endpoint || obj.url) { urls.push(obj.endpoint || obj.url); continue; }
+      } catch { /* not JSON */ }
+      if (/^https?:\/\//i.test(l)) urls.push(l);
+    }
+    return { urls: [...new Set(urls)], count: new Set(urls).size };
+  },
+  suggestName(pd) { try { return new URL(pd.urls?.[0]).hostname; } catch { return null; } },
+  suggestItemName() { return 'katana'; },
+};
+
+/** Gospider — web spider */
+const GOSPIDER = {
+  id: 'gospider', label: 'Gospider', icon: '🕷️',
+  detect(text) {
+    let s = 0;
+    if (/gospider/i.test(text)) s += 0.5;
+    if (/\[url\]|\[form\]|\[javascript\]|\[linkfinder\]/i.test(text)) s += 0.4;
+    if (/\[subdomains\]/i.test(text)) s += 0.2;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const urls = [], forms = [], jsFiles = [], subdomains = [];
+    for (const line of text.split('\n')) {
+      const l = line.trim();
+      if (/\[url\]/i.test(l))        { const u = l.replace(/.*\]\s*-\s*/, '').trim(); if (u) urls.push(u); }
+      if (/\[form\]/i.test(l))       { const u = l.replace(/.*\]\s*-\s*/, '').trim(); if (u) forms.push(u); }
+      if (/\[javascript\]/i.test(l))  { const u = l.replace(/.*\]\s*-\s*/, '').trim(); if (u) jsFiles.push(u); }
+      if (/\[subdomains?\]/i.test(l)) { const u = l.replace(/.*\]\s*-\s*/, '').trim(); if (u) subdomains.push(u); }
+    }
+    return { urls, forms, jsFiles, subdomains, count: urls.length };
+  },
+  suggestName(pd) { try { return new URL(pd.urls?.[0]).hostname; } catch { return null; } },
+  suggestItemName() { return 'gospider'; },
+};
+
+/** Hakrawler — web crawler */
+const HAKRAWLER = {
+  id: 'hakrawler', label: 'Hakrawler', icon: '🕸️',
+  detect(text) {
+    let s = 0;
+    if (/hakrawler/i.test(text)) s += 0.5;
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    const urlLines = lines.filter(l => /^https?:\/\//i.test(l));
+    if (urlLines.length > 5 && urlLines.length / lines.length > 0.8) s += 0.3;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const urls = text.split('\n').map(l => l.trim()).filter(l => /^https?:\/\//i.test(l));
+    return { urls: [...new Set(urls)], count: new Set(urls).size };
+  },
+  suggestName(pd) { try { return new URL(pd.urls?.[0]).hostname; } catch { return null; } },
+  suggestItemName() { return 'hakrawler'; },
+};
+
+/** Cariddi — web crawler + secrets finder */
+const CARIDDI = {
+  id: 'cariddi', label: 'Cariddi', icon: '🦑',
+  detect(text) {
+    let s = 0;
+    if (/cariddi/i.test(text)) s += 0.6;
+    if (/\[secret\]|\[endpoint\]|\[error\]/i.test(text)) s += 0.3;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const urls = [], secrets = [], errors = [];
+    for (const line of text.split('\n')) {
+      const l = line.trim();
+      if (/\[secret\]/i.test(l)) secrets.push(l.replace(/.*\]\s*/, ''));
+      else if (/\[error\]/i.test(l)) errors.push(l.replace(/.*\]\s*/, ''));
+      else if (/^https?:\/\//i.test(l)) urls.push(l);
+    }
+    return { urls, secrets, errors, count: urls.length };
+  },
+  suggestName(pd) { try { return new URL(pd.urls?.[0]).hostname; } catch { return null; } },
+  suggestItemName() { return 'cariddi'; },
+};
+
+/** GAU — getallurls */
+const GAU = {
+  id: 'gau', label: 'GAU (GetAllUrls)', icon: '📦',
+  detect(text) {
+    let s = 0;
+    if (/gau|getallurls/i.test(text)) s += 0.4;
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    const urlLines = lines.filter(l => /^https?:\/\//i.test(l));
+    if (urlLines.length > 10 && urlLines.length / lines.length > 0.9) s += 0.4;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const urls = text.split('\n').map(l => l.trim()).filter(l => /^https?:\/\//i.test(l));
+    return { urls: [...new Set(urls)], count: new Set(urls).size };
+  },
+  suggestName(pd) { try { return new URL(pd.urls?.[0]).hostname; } catch { return null; } },
+  suggestItemName() { return 'gau'; },
+};
+
+/** Waybackurls output */
+const WAYBACKURLS = {
+  id: 'waybackurls', label: 'Waybackurls', icon: '⏳',
+  detect(text) {
+    let s = 0;
+    if (/waybackurls/i.test(text)) s += 0.5;
+    if (/web\.archive\.org/i.test(text)) s += 0.3;
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    const urlLines = lines.filter(l => /^https?:\/\//i.test(l));
+    if (urlLines.length > 10 && urlLines.length / lines.length > 0.9) s += 0.3;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const urls = text.split('\n').map(l => l.trim()).filter(l => /^https?:\/\//i.test(l));
+    return { urls: [...new Set(urls)], count: new Set(urls).size };
+  },
+  suggestName(pd) { try { return new URL(pd.urls?.[0]).hostname; } catch { return null; } },
+  suggestItemName() { return 'waybackurls'; },
+};
+
+/** Waymore output */
+const WAYMORE = {
+  id: 'waymore', label: 'Waymore', icon: '⏳',
+  detect(text) {
+    let s = 0;
+    if (/waymore/i.test(text)) s += 0.6;
+    if (/\[wayback\]|\[commoncrawl\]|\[alienvault\]/i.test(text)) s += 0.3;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const urls = text.split('\n').map(l => l.trim()).filter(l => /^https?:\/\//i.test(l));
+    return { urls: [...new Set(urls)], count: new Set(urls).size };
+  },
+  suggestName(pd) { try { return new URL(pd.urls?.[0]).hostname; } catch { return null; } },
+  suggestItemName() { return 'waymore'; },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  JS / PARAMETER / SECRET ANALYSIS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Subjs — JS file extractor from HTTP responses */
+const SUBJS = {
+  id: 'subjs', label: 'Subjs', icon: '📜',
+  detect(text) {
+    let s = 0;
+    if (/subjs/i.test(text)) s += 0.5;
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    const jsUrls = lines.filter(l => /^https?:\/\/.*\.js(\?.*)?$/i.test(l));
+    if (jsUrls.length > 3 && jsUrls.length / lines.length > 0.7) s += 0.4;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const urls = text.split('\n').map(l => l.trim()).filter(l => /^https?:\/\//i.test(l));
+    return { urls: [...new Set(urls)], count: new Set(urls).size };
+  },
+  suggestName(pd) { try { return new URL(pd.urls?.[0]).hostname; } catch { return null; } },
+  suggestItemName() { return 'subjs'; },
+};
+
+/** LinkFinder — JS endpoint extractor */
+const LINKFINDER = {
+  id: 'linkfinder', label: 'LinkFinder', icon: '🔗',
+  detect(text) {
+    let s = 0;
+    if (/linkfinder/i.test(text)) s += 0.6;
+    if (/Running against:/i.test(text) && /endpoints/i.test(text)) s += 0.3;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const endpoints = text.split('\n').map(l => l.trim()).filter(l => l && !/^Running|^$|^#/.test(l));
+    return { endpoints: [...new Set(endpoints)], count: new Set(endpoints).size };
+  },
+  suggestName() { return null; },
+  suggestItemName() { return 'linkfinder'; },
+};
+
+/** SecretFinder — secrets in JS files */
+const SECRETFINDER = {
+  id: 'secretfinder', label: 'SecretFinder', icon: '🔑',
+  detect(text) {
+    let s = 0;
+    if (/secretfinder/i.test(text)) s += 0.6;
+    if (/\[apikey\]|\[secret\]|\[token\]|\[password\]/i.test(text)) s += 0.3;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const findings = [];
+    for (const line of text.split('\n')) {
+      const l = line.trim();
+      const m = l.match(/^\[(\w+)\]\s*(.+)/);
+      if (m) findings.push({ type: m[1], value: m[2].trim() });
+    }
+    return { findings, count: findings.length };
+  },
+  suggestName() { return null; },
+  suggestItemName() { return 'secretfinder'; },
+};
+
+/** Jsubfinder — secrets/endpoints from JS */
+const JSUBFINDER = {
+  id: 'jsubfinder', label: 'Jsubfinder', icon: '🔗',
+  detect(text) {
+    let s = 0;
+    if (/jsubfinder/i.test(text)) s += 0.6;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const results = text.split('\n').map(l => l.trim()).filter(l => l && !/^#/.test(l));
+    return { results, count: results.length };
+  },
+  suggestName() { return null; },
+  suggestItemName() { return 'jsubfinder'; },
+};
+
+/** ParamSpider — parameter discovery */
+const PARAMSPIDER = {
+  id: 'paramspider', label: 'ParamSpider', icon: '🕷️',
+  detect(text) {
+    let s = 0;
+    if (/paramspider/i.test(text)) s += 0.6;
+    if (/FUZZ/.test(text)) s += 0.2;
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    const paramUrls = lines.filter(l => /^https?:\/\/.*[?&]\w+=/.test(l));
+    if (paramUrls.length > 3 && paramUrls.length / lines.length > 0.6) s += 0.3;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const urls = text.split('\n').map(l => l.trim()).filter(l => /^https?:\/\//i.test(l));
+    const params = new Set();
+    for (const u of urls) {
+      try { for (const k of new URL(u).searchParams.keys()) params.add(k); } catch { /* skip */ }
+    }
+    return { urls, params: [...params], count: urls.length };
+  },
+  suggestName(pd) { try { return new URL(pd.urls?.[0]).hostname; } catch { return null; } },
+  suggestItemName() { return 'paramspider'; },
+};
+
+/** Arjun — parameter brute-forcing */
+const ARJUN = {
+  id: 'arjun', label: 'Arjun', icon: '🎯',
+  detect(text) {
+    let s = 0;
+    if (/arjun/i.test(text)) s += 0.5;
+    if (/\bValid parameters\b/i.test(text)) s += 0.3;
+    if (/\bTarget\b.*https?:\/\//i.test(text)) s += 0.2;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const params = [];
+    let target = (text.match(/Target:\s*(\S+)/i) || [])[1] || null;
+    // "Valid parameters: param1, param2" or JSON output
+    const listMatch = text.match(/Valid parameters?:?\s*(.+)/i);
+    if (listMatch) {
+      for (const p of listMatch[1].split(/[,\s]+/)) { const t = p.trim(); if (t) params.push(t); }
+    }
+    try {
+      const obj = JSON.parse(text);
+      for (const [url, pList] of Object.entries(obj)) {
+        if (!target) target = url;
+        for (const p of (Array.isArray(pList) ? pList : [])) params.push(p);
+      }
+    } catch { /* not JSON */ }
+    return { target, params: [...new Set(params)], count: params.length };
+  },
+  suggestName(pd) { try { return new URL(pd.target).hostname; } catch { return pd.target || null; } },
+  suggestItemName() { return 'arjun'; },
+};
+
+/** x8 — hidden parameter brute-forcer */
+const X8 = {
+  id: 'x8', label: 'x8', icon: '🎯',
+  detect(text) {
+    let s = 0;
+    if (/\bx8\b/i.test(text) && /parameter/i.test(text)) s += 0.5;
+    if (/Found\s+hidden\s+param/i.test(text)) s += 0.4;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const params = [];
+    for (const m of text.matchAll(/(?:Found|hidden)\s+param(?:eter)?:?\s*[`"']?(\w+)/gi)) {
+      params.push(m[1]);
+    }
+    return { params: [...new Set(params)], count: params.length };
+  },
+  suggestName() { return null; },
+  suggestItemName() { return 'x8'; },
+};
+
+/** URL manipulation utilities: Anew, Qsreplace, Unfurl, Gf, Uro */
+const URL_UTILS = {
+  id: 'url_utils', label: 'URL Utilities (anew/qsreplace/unfurl/gf/uro)', icon: '🔧',
+  detect(text) {
+    let s = 0;
+    if (/anew|qsreplace|unfurl|uro/i.test(text)) s += 0.3;
+    if (/\bgf\b/i.test(text) && /(xss|sqli|ssrf|redirect|lfi|rce|ssti)/i.test(text)) s += 0.4;
+    // High-density URL list
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    const urlLines = lines.filter(l => /^https?:\/\//i.test(l));
+    if (urlLines.length > 10 && urlLines.length / lines.length > 0.9) s += 0.2;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const urls = text.split('\n').map(l => l.trim()).filter(l => /^https?:\/\//i.test(l) || /^[\w.-]+\.\w{2,}/.test(l));
+    return { urls: [...new Set(urls)], count: new Set(urls).size };
+  },
+  suggestName(pd) { try { return new URL(pd.urls?.[0]).hostname; } catch { return null; } },
+  suggestItemName() { return 'url utilities'; },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  PORT & SERVICE SCANNING
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Naabu — port scanner (ProjectDiscovery) */
+const NAABU = {
+  id: 'naabu', label: 'Naabu', icon: '🔌',
+  detect(text) {
+    let s = 0;
+    if (/naabu/i.test(text) && /projectdiscovery/i.test(text)) s += 0.5;
+    // format: host:port
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    const hostPort = lines.filter(l => /^[\w.-]+:\d{1,5}$/.test(l));
+    if (hostPort.length > 3 && hostPort.length / lines.length > 0.7) s += 0.4;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const results = [];
+    for (const line of text.split('\n')) {
+      const m = line.trim().match(/^([\w.-]+):(\d{1,5})$/);
+      if (m) results.push({ host: m[1], port: Number(m[2]) });
+    }
+    const hosts = [...new Set(results.map(r => r.host))];
+    return { results, hosts, count: results.length };
+  },
+  suggestName(pd) { return pd.hosts?.[0] || null; },
+  suggestItemName() { return 'naabu'; },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  VULNERABILITY SCANNING
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Nuclei (ProjectDiscovery) */
+const NUCLEI = {
+  id: 'nuclei', label: 'Nuclei', icon: '☢️',
+  detect(text) {
+    let s = 0;
+    if (/nuclei/i.test(text) && /projectdiscovery/i.test(text)) s += 0.5;
+    if (/\[(info|low|medium|high|critical)\]/i.test(text)) s += 0.3;
+    if (/\[[\w:-]+\]\s+\[/m.test(text)) s += 0.3;  // [template-id] [severity]
+    // JSON output
+    if (/\"template-id\"/i.test(text) && /\"matched-at\"/i.test(text)) s += 0.4;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const findings = [];
+    for (const line of text.split('\n')) {
+      const l = line.trim();
+      if (!l) continue;
+      // JSON format
+      try {
+        const obj = JSON.parse(l);
+        if (obj['template-id'] || obj.templateID) {
+          findings.push({
+            templateId: obj['template-id'] || obj.templateID,
+            name: obj.info?.name || obj.name || '',
+            severity: obj.info?.severity || obj.severity || 'info',
+            matchedAt: obj['matched-at'] || obj.matched || '',
+            extractedResults: obj['extracted-results'] || [],
+            tags: obj.info?.tags || [],
+          });
+          continue;
+        }
+      } catch { /* not JSON */ }
+      // Plain format: [template-id] [protocol] [severity] matched-at
+      const m = l.match(/\[([\w:-]+)\]\s+\[(\w+)\]\s+\[(info|low|medium|high|critical)\]\s+(.+)/i);
+      if (m) findings.push({ templateId: m[1], protocol: m[2], severity: m[3].toLowerCase(), matchedAt: m[4].trim() });
+    }
+    const bySev = {};
+    for (const f of findings) { bySev[f.severity] = (bySev[f.severity] || 0) + 1; }
+    return { findings, bySeverity: bySev, count: findings.length };
+  },
+  suggestName(pd) {
+    const first = pd.findings?.[0];
+    if (!first) return null;
+    try { return new URL(first.matchedAt).hostname; } catch { return first.matchedAt || null; }
+  },
+  suggestItemName() { return 'nuclei'; },
+};
+
+/** Jaeles — web vulnerability scanner */
+const JAELES = {
+  id: 'jaeles', label: 'Jaeles', icon: '🎯',
+  detect(text) {
+    let s = 0;
+    if (/jaeles/i.test(text)) s += 0.6;
+    if (/\[Vuln\]/i.test(text)) s += 0.3;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const findings = [];
+    for (const line of text.split('\n')) {
+      const l = line.trim();
+      if (/\[Vuln\]/i.test(l)) {
+        findings.push({ raw: l.replace(/\[Vuln\]\s*/i, '').trim() });
+      }
+    }
+    return { findings, count: findings.length };
+  },
+  suggestName() { return null; },
+  suggestItemName() { return 'jaeles'; },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  XSS TESTING
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Dalfox — XSS scanner */
+const DALFOX = {
+  id: 'dalfox', label: 'Dalfox', icon: '🦊',
+  detect(text) {
+    let s = 0;
+    if (/dalfox/i.test(text)) s += 0.6;
+    if (/\[POC\]|\[V\]|\[G\]/i.test(text)) s += 0.3;
+    if (/\bVerified\b/i.test(text) && /xss/i.test(text)) s += 0.2;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const pocs = [];
+    for (const line of text.split('\n')) {
+      const l = line.trim();
+      if (/\[POC\]/i.test(l)) pocs.push({ type: 'poc', payload: l.replace(/.*\[POC\]\s*/i, '') });
+      else if (/\[V\]/i.test(l)) pocs.push({ type: 'verified', payload: l.replace(/.*\[V\]\s*/i, '') });
+      else if (/\[G\]/i.test(l)) pocs.push({ type: 'grepping', payload: l.replace(/.*\[G\]\s*/i, '') });
+    }
+    return { pocs, count: pocs.length };
+  },
+  suggestName() { return null; },
+  suggestItemName() { return 'dalfox'; },
+};
+
+/** XSStrike — XSS detection */
+const XSSTRIKE = {
+  id: 'xsstrike', label: 'XSStrike', icon: '⚡',
+  detect(text) {
+    let s = 0;
+    if (/xsstrike/i.test(text)) s += 0.6;
+    if (/Vulnerable|Payload/i.test(text) && /xss/i.test(text)) s += 0.3;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const vulns = [];
+    for (const line of text.split('\n')) {
+      if (/Vulnerable/i.test(line)) vulns.push(line.trim());
+    }
+    return { vulns, count: vulns.length };
+  },
+  suggestName() { return null; },
+  suggestItemName() { return 'xsstrike'; },
+};
+
+/** Kxss — XSS reflection checker */
+const KXSS = {
+  id: 'kxss', label: 'Kxss', icon: '💉',
+  detect(text) {
+    let s = 0;
+    if (/kxss/i.test(text)) s += 0.6;
+    if (/unfiltered|reflected/i.test(text) && /param/i.test(text)) s += 0.3;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const results = [];
+    for (const line of text.split('\n')) {
+      const l = line.trim();
+      if (l && !/^#/.test(l)) results.push(l);
+    }
+    return { results, count: results.length };
+  },
+  suggestName() { return null; },
+  suggestItemName() { return 'kxss'; },
+};
+
+/** Airixss — XSS scanner */
+const AIRIXSS = {
+  id: 'airixss', label: 'Airixss', icon: '💉',
+  detect(text) {
+    let s = 0;
+    if (/airixss/i.test(text)) s += 0.7;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const results = text.split('\n').map(l => l.trim()).filter(l => l && !/^#/.test(l));
+    return { results, count: results.length };
+  },
+  suggestName() { return null; },
+  suggestItemName() { return 'airixss'; },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  SQL INJECTION
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** SQLMap output */
+const SQLMAP = {
+  id: 'sqlmap', label: 'SQLMap', icon: '💉',
+  detect(text) {
+    let s = 0;
+    if (/sqlmap/i.test(text)) s += 0.4;
+    if (/\bsqlmap\.org\b/i.test(text)) s += 0.3;
+    if (/\[INFO\].*parameter.*is vulnerable/i.test(text)) s += 0.5;
+    if (/Type:\s*(boolean-based|time-based|UNION|error-based|stacked)/i.test(text)) s += 0.4;
+    if (/back-end DBMS/i.test(text)) s += 0.3;
+    if (/available databases/i.test(text)) s += 0.2;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const vulns = [];
+    const databases = [];
+    const tables = [];
+    let dbms = (text.match(/back-end DBMS:\s*(.+)/i) || [])[1]?.trim() || null;
+    let target = (text.match(/(?:URL|target|Target URL):\s*(\S+)/i) || [])[1] || null;
+
+    // injection types
+    for (const m of text.matchAll(/Parameter:\s*(\S+).*?\n((?:\s+Type:.*\n?)+)/gi)) {
+      const param = m[1];
+      const types = [...m[2].matchAll(/Type:\s*(.+)/gi)].map(t => t[1].trim());
+      vulns.push({ parameter: param, types });
+    }
+
+    // databases
+    for (const m of text.matchAll(/\[\*\]\s+(\S+)/g)) { databases.push(m[1]); }
+
+    // tables
+    for (const m of text.matchAll(/\|\s+(\S+)\s+\|/g)) {
+      const t = m[1].trim();
+      if (t && t !== 'Table' && !/^-+$/.test(t)) tables.push(t);
+    }
+
+    return { target, dbms, vulns, databases, tables, count: vulns.length };
+  },
+  suggestName(pd) { try { return new URL(pd.target).hostname; } catch { return pd.target || null; } },
+  suggestItemName() { return 'sqlmap'; },
+};
+
+/** Ghauri — SQL injection */
+const GHAURI = {
+  id: 'ghauri', label: 'Ghauri', icon: '💉',
+  detect(text) {
+    let s = 0;
+    if (/ghauri/i.test(text)) s += 0.6;
+    if (/parameter.*injectable|is vulnerable/i.test(text)) s += 0.3;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const vulns = [];
+    let target = (text.match(/(?:URL|target):\s*(\S+)/i) || [])[1] || null;
+    for (const line of text.split('\n')) {
+      if (/injectable|vulnerable/i.test(line)) vulns.push(line.trim());
+    }
+    return { target, vulns, count: vulns.length };
+  },
+  suggestName(pd) { try { return new URL(pd.target).hostname; } catch { return pd.target || null; } },
+  suggestItemName() { return 'ghauri'; },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  WEB FUZZING (EXTENDED)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Wfuzz output parser */
+const WFUZZ = {
+  id: 'wfuzz', label: 'Wfuzz', icon: '🐝',
+  detect(text) {
+    let s = 0;
+    if (/wfuzz/i.test(text)) s += 0.5;
+    if (/^\d+\s+\d+\s+\d+\s+\d+\.\d+\s/m.test(text)) s += 0.3;  // wfuzz output columns
+    if (/Target:\s*https?:\/\//i.test(text)) s += 0.2;
+    if (/Total requests/i.test(text)) s += 0.2;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const results = [];
+    const target = (text.match(/Target:\s*(\S+)/i) || [])[1] || null;
+    // ID  Response  Lines  Word  Chars  Payload
+    for (const m of text.matchAll(/^(\d+)\s+(\d{3})\s+(\d+)\s+L\s+(\d+)\s+W\s+(\d+)\s+Ch\s+"(.+)"/gm)) {
+      results.push({ id: Number(m[1]), status: Number(m[2]), lines: Number(m[3]), words: Number(m[4]), chars: Number(m[5]), payload: m[6] });
+    }
+    // Alternative simpler format
+    if (!results.length) {
+      for (const m of text.matchAll(/^(\d{3})\s+\d+L\s+\d+W\s+\d+Ch\s+"([^"]+)"/gm)) {
+        results.push({ status: Number(m[1]), payload: m[2] });
+      }
+    }
+    return { target, results, count: results.length };
+  },
+  suggestName(pd) { return pd.target || null; },
+  suggestItemName() { return 'wfuzz'; },
+};
+
+/** ffuf (extended — complements WEB_FUZZ) */
+const FFUF = {
+  id: 'ffuf', label: 'ffuf', icon: '⚡',
+  detect(text) {
+    let s = 0;
+    if (/\bffuf\b/i.test(text)) s += 0.4;
+    if (/FUZZ/i.test(text) && /\bffuf\b/i.test(text)) s += 0.3;
+    if (/\[Status:\s*\d{3},\s*Size:\s*\d+/m.test(text)) s += 0.4;
+    // JSON mode
+    if (/\"commandline\".*ffuf/i.test(text)) s += 0.5;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const results = [];
+    const target = (text.match(/(?:Target|URL|url):\s*(\S+)/i) || [])[1] || null;
+    // JSON output
+    try {
+      const obj = JSON.parse(text);
+      if (obj.results) {
+        for (const r of obj.results) {
+          results.push({ url: r.url || r.input?.FUZZ, status: r.status, length: r.length, words: r.words, lines: r.lines });
+        }
+        return { target: obj.commandline || target, results, count: results.length };
+      }
+    } catch { /* not JSON */ }
+    // Text mode: keyword [Status: 200, Size: 1234, Words: 56, Lines: 12]
+    for (const m of text.matchAll(/^(\S+)\s+\[Status:\s*(\d{3}),\s*Size:\s*(\d+)(?:,\s*Words:\s*(\d+))?(?:,\s*Lines:\s*(\d+))?/gm)) {
+      results.push({ url: m[1], status: Number(m[2]), length: Number(m[3]), words: Number(m[4] || 0), lines: Number(m[5] || 0) });
+    }
+    return { target, results, count: results.length };
+  },
+  suggestName(pd) { return pd.target || null; },
+  suggestItemName() { return 'ffuf'; },
+};
+
+/** Gobuster (extended with dns/vhost modes) */
+const GOBUSTER = {
+  id: 'gobuster', label: 'Gobuster', icon: '👻',
+  detect(text) {
+    let s = 0;
+    if (/Gobuster\s+v/i.test(text)) s += 0.6;
+    if (/^Found:\s/m.test(text)) s += 0.3;
+    if (/^(\/\S+)\s+\(Status:\s*\d{3}\)/m.test(text)) s += 0.4;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const results = [];
+    // dir mode: /path (Status: 200) [Size: 1234]
+    for (const m of text.matchAll(/^(\/\S+)\s+\(Status:\s*(\d{3})\)\s*(?:\[Size:\s*(\d+)\])?/gm)) {
+      results.push({ path: m[1], status: Number(m[2]), size: Number(m[3] || 0), mode: 'dir' });
+    }
+    // dns mode: Found: subdomain.example.com
+    for (const m of text.matchAll(/^Found:\s+([\w.-]+)/gm)) {
+      results.push({ domain: m[1], mode: 'dns' });
+    }
+    // vhost mode: Found: vhost Status: 200
+    for (const m of text.matchAll(/^Found:\s+(\S+)\s+Status:\s*(\d{3})/gm)) {
+      results.push({ vhost: m[1], status: Number(m[2]), mode: 'vhost' });
+    }
+    const target = (text.match(/(?:Url|Target):\s*(\S+)/i) || [])[1] || null;
+    return { target, results, count: results.length };
+  },
+  suggestName(pd) { return pd.target || null; },
+  suggestItemName() { return 'gobuster'; },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  SECRET & CREDENTIAL SCANNING
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Trufflehog — secret scanner */
+const TRUFFLEHOG = {
+  id: 'trufflehog', label: 'Trufflehog', icon: '🐷',
+  detect(text) {
+    let s = 0;
+    if (/trufflehog/i.test(text)) s += 0.6;
+    if (/Detector Type/i.test(text) || /\"SourceMetadata\"/i.test(text)) s += 0.3;
+    if (/Raw result/i.test(text)) s += 0.2;
+    if (/Verified:\s*(true|false)/i.test(text)) s += 0.2;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const secrets = [];
+    // JSON-line format
+    for (const line of text.split('\n')) {
+      try {
+        const obj = JSON.parse(line);
+        if (obj.DetectorType || obj.Raw || obj.SourceMetadata) {
+          secrets.push({
+            detector: obj.DetectorType || obj.DetectorName || 'unknown',
+            raw: obj.Raw || '',
+            verified: obj.Verified || false,
+            source: obj.SourceMetadata?.Data?.Git?.file || obj.SourceMetadata?.Data?.Filesystem?.file || '',
+          });
+          continue;
+        }
+      } catch { /* not JSON */ }
+      // Text format: Detector Type: X\nRaw: Y
+      const dm = line.match(/Detector Type:\s*(.+)/i);
+      if (dm) secrets.push({ detector: dm[1].trim(), raw: '', verified: false, source: '' });
+    }
+    // Fill in raw values from subsequent lines
+    let cur = null;
+    for (const line of text.split('\n')) {
+      const dm = line.match(/Detector Type:\s*(.+)/i);
+      if (dm) { cur = secrets.find(s => s.detector === dm[1].trim() && !s.raw); continue; }
+      if (cur) {
+        const rm = line.match(/Raw(?:V2)?:\s*(.+)/i);
+        if (rm) { cur.raw = rm[1].trim(); cur = null; }
+        const vm = line.match(/Verified:\s*(true|false)/i);
+        if (vm) cur.verified = vm[1] === 'true';
+      }
+    }
+    return { secrets, count: secrets.length };
+  },
+  suggestName() { return null; },
+  suggestItemName() { return 'trufflehog'; },
+};
+
+/** Gitrob — GitHub org/user recon */
+const GITROB = {
+  id: 'gitrob', label: 'Gitrob', icon: '🐙',
+  detect(text) {
+    let s = 0;
+    if (/gitrob/i.test(text)) s += 0.7;
+    if (/\[CRITICAL\]|\[HIGH\]|\[MEDIUM\]|\[LOW\]/i.test(text) && /\.git/i.test(text)) s += 0.3;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const findings = [];
+    for (const line of text.split('\n')) {
+      const m = line.match(/\[(CRITICAL|HIGH|MEDIUM|LOW)\]\s*(.+)/i);
+      if (m) findings.push({ severity: m[1].toLowerCase(), detail: m[2].trim() });
+    }
+    return { findings, count: findings.length };
+  },
+  suggestName() { return null; },
+  suggestItemName() { return 'gitrob'; },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  OSINT / INTERNET-WIDE SCANNING
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Shodan CLI output */
+const SHODAN = {
+  id: 'shodan', label: 'Shodan CLI', icon: '👁️',
+  detect(text) {
+    let s = 0;
+    if (/shodan/i.test(text)) s += 0.4;
+    if (/\"ip_str\"/i.test(text) || /\"port\"\s*:\s*\d+/i.test(text)) s += 0.3;
+    if (/ISP:/i.test(text) && /Ports:/i.test(text)) s += 0.4;
+    if (/Organization:/i.test(text)) s += 0.2;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const results = [];
+    // JSON format
+    for (const line of text.split('\n')) {
+      try {
+        const obj = JSON.parse(line);
+        if (obj.ip_str || obj.ip) {
+          results.push({
+            ip: obj.ip_str || obj.ip, port: obj.port, transport: obj.transport || 'tcp',
+            product: obj.product || '', version: obj.version || '',
+            org: obj.org || '', isp: obj.isp || '', os: obj.os || '',
+            hostnames: obj.hostnames || [], domains: obj.domains || [],
+          });
+          continue;
+        }
+      } catch { /* not JSON */ }
+    }
+    // Text summary format
+    if (!results.length) {
+      const ip = (text.match(/IP:\s*(\S+)/i) || [])[1];
+      const org = (text.match(/Organization:\s*(.+)/i) || [])[1]?.trim();
+      const ports = (text.match(/Ports:\s*(.+)/i) || [])[1]?.split(/[,\s]+/).map(Number).filter(Boolean);
+      if (ip) results.push({ ip, org: org || '', ports: ports || [] });
+    }
+    return { results, count: results.length };
+  },
+  suggestName(pd) { return pd.results?.[0]?.ip || pd.results?.[0]?.hostnames?.[0] || null; },
+  suggestItemName() { return 'shodan'; },
+};
+
+/** Censys output */
+const CENSYS = {
+  id: 'censys', label: 'Censys', icon: '🔬',
+  detect(text) {
+    let s = 0;
+    if (/censys/i.test(text)) s += 0.5;
+    if (/\"ip\"\s*:\s*\"/i.test(text) && /\"services\"/i.test(text)) s += 0.4;
+    if (/\"autonomous_system\"/i.test(text)) s += 0.2;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const results = [];
+    for (const line of text.split('\n')) {
+      try {
+        const obj = JSON.parse(line);
+        if (obj.ip) {
+          results.push({
+            ip: obj.ip,
+            services: (obj.services || []).map(s => ({ port: s.port, protocol: s.transport_protocol, name: s.service_name })),
+            asn: obj.autonomous_system?.asn || '',
+            org: obj.autonomous_system?.description || '',
+          });
+        }
+      } catch { /* not JSON */ }
+    }
+    return { results, count: results.length };
+  },
+  suggestName(pd) { return pd.results?.[0]?.ip || null; },
+  suggestItemName() { return 'censys'; },
+};
+
+/** Metabigor — OSINT without API key */
+const METABIGOR = {
+  id: 'metabigor', label: 'Metabigor', icon: '🔍',
+  detect(text) {
+    let s = 0;
+    if (/metabigor/i.test(text)) s += 0.7;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const results = text.split('\n').map(l => l.trim()).filter(l => l && !/^#/.test(l));
+    const ips = results.filter(l => /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/.test(l));
+    return { results, ips, count: results.length };
+  },
+  suggestName(pd) { return pd.ips?.[0] || null; },
+  suggestItemName() { return 'metabigor'; },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  CLOUD SECURITY
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** AWS CLI output */
+const AWS_CLI = {
+  id: 'aws_cli', label: 'AWS CLI', icon: '☁️',
+  detect(text) {
+    let s = 0;
+    if (/\"(Account|Arn|UserId)\"/i.test(text)) s += 0.3;
+    if (/arn:aws:/i.test(text)) s += 0.4;
+    if (/\"Buckets\"|\"Instances\"|\"SecurityGroups\"/i.test(text)) s += 0.3;
+    if (/aws\s+(s3|ec2|iam|sts|lambda)/i.test(text)) s += 0.3;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    try {
+      const obj = JSON.parse(text);
+      return { data: obj, type: 'json', count: Array.isArray(obj) ? obj.length : Object.keys(obj).length };
+    } catch { /* not JSON */ }
+    const arns = [...text.matchAll(/arn:aws:[^"\s]+/g)].map(m => m[0]);
+    return { raw: text, arns, count: arns.length };
+  },
+  suggestName(pd) { return pd.arns?.[0]?.split(':')[4] || null; },
+  suggestItemName() { return 'aws cli'; },
+};
+
+/** CloudEnum — cloud resource enumeration */
+const CLOUDENUM = {
+  id: 'cloudenum', label: 'CloudEnum', icon: '☁️',
+  detect(text) {
+    let s = 0;
+    if (/cloud.?enum/i.test(text)) s += 0.6;
+    if (/\[+\]\s*(s3|azure|gcp|bucket)/i.test(text)) s += 0.3;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const buckets = [], results = [];
+    for (const line of text.split('\n')) {
+      const l = line.trim();
+      if (/s3\.amazonaws|blob\.core\.windows|storage\.googleapis/i.test(l)) buckets.push(l.replace(/\[.\]\s*/, ''));
+      else if (l && /\[.\]/.test(l)) results.push(l.replace(/\[.\]\s*/, ''));
+    }
+    return { buckets, results, count: buckets.length + results.length };
+  },
+  suggestName() { return null; },
+  suggestItemName() { return 'cloudenum'; },
+};
+
+/** S3Scanner output */
+const S3SCANNER = {
+  id: 's3scanner', label: 'S3Scanner', icon: '🪣',
+  detect(text) {
+    let s = 0;
+    if (/s3scanner/i.test(text)) s += 0.6;
+    if (/bucket.*exists|AuthorizatedAccess|AllUsers/i.test(text)) s += 0.3;
+    if (/\.s3\.amazonaws\.com/i.test(text)) s += 0.3;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const buckets = [];
+    for (const line of text.split('\n')) {
+      const l = line.trim();
+      const m = l.match(/([\w.-]+\.s3[\w.-]*\.amazonaws\.com|[\w.-]+)\s*\|\s*(.+)/i);
+      if (m) buckets.push({ name: m[1], status: m[2].trim() });
+      else if (/bucket.*exists/i.test(l)) buckets.push({ name: l, status: 'exists' });
+    }
+    return { buckets, count: buckets.length };
+  },
+  suggestName() { return null; },
+  suggestItemName() { return 's3scanner'; },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  PRIVILEGE ESCALATION
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** LinPEAS output */
+const LINPEAS = {
+  id: 'linpeas', label: 'LinPEAS', icon: '🐧',
+  detect(text) {
+    let s = 0;
+    if (/linpeas/i.test(text)) s += 0.5;
+    if (/╔═.*╗/m.test(text) || /╚═.*╝/m.test(text)) s += 0.2;
+    if (/INTERESTING|EXPLOIT/i.test(text)) s += 0.2;
+    if (/\u001b\[\d+m/g.test(text) || /\x1b\[\d+m/g.test(text)) s += 0.1;  // ANSI colors
+    if (/Cron jobs|╠═.*Analyzing/i.test(text)) s += 0.2;
+    if (/99%.*sure/i.test(text) || /PE.*possible/i.test(text)) s += 0.3;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    // Strip ANSI escape codes
+    const clean = text.replace(/\x1b\[[0-9;]*m/g, '').replace(/\u001b\[[0-9;]*m/g, '');
+    const sections = [];
+    let currentSection = null;
+
+    for (const line of clean.split('\n')) {
+      // Section headers: ╔══════════╗  or ══════ Title ══════
+      const headerMatch = line.match(/[╔═]+\s*(.+?)\s*[═╗]+/) || line.match(/^#+\s*(.+)/);
+      if (headerMatch) {
+        if (currentSection) sections.push(currentSection);
+        currentSection = { title: headerMatch[1].trim(), findings: [], severity: 'info' };
+        continue;
+      }
+      if (!currentSection) continue;
+
+      const l = line.trim();
+      if (!l) continue;
+
+      // Color-coded severity (linpeas uses red/yellow)
+      if (/99%|PE - Always/i.test(l)) currentSection.severity = 'critical';
+      else if (/95%|PE -/i.test(l) && currentSection.severity !== 'critical') currentSection.severity = 'high';
+      else if (/Interesting|possible/i.test(l) && !['critical', 'high'].includes(currentSection.severity)) currentSection.severity = 'medium';
+
+      if (l.length > 2 && !/^[═╔╗╚╝─]+$/.test(l)) currentSection.findings.push(l);
+    }
+    if (currentSection) sections.push(currentSection);
+
+    const bySeverity = {};
+    for (const s of sections) { bySeverity[s.severity] = (bySeverity[s.severity] || 0) + 1; }
+    return { sections, bySeverity, count: sections.length };
+  },
+  suggestName() { return null; },
+  suggestItemName() { return 'linpeas'; },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  IMPACKET TOOLS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Impacket secretsdump.py output */
+const IMPACKET_SECRETSDUMP = {
+  id: 'impacket_secretsdump', label: 'Impacket secretsdump', icon: '🔐',
+  detect(text) {
+    let s = 0;
+    if (/Impacket/i.test(text) && /secretsdump/i.test(text)) s += 0.5;
+    if (/\[.\]\s*Dumping/i.test(text)) s += 0.3;
+    // NTLM hash format: user:rid:lmhash:nthash:::
+    if (/^\w+:\d+:[a-f0-9]{32}:[a-f0-9]{32}:::/m.test(text)) s += 0.5;
+    // NTDS.DIT or SAM hashes
+    if (/NTDS\.DIT|SAM hashes/i.test(text)) s += 0.3;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const hashes = [];
+    const kerberos = [];
+    for (const line of text.split('\n')) {
+      const l = line.trim();
+      // user:rid:lmhash:nthash:::
+      const hm = l.match(/^(\S+):(\d+):([a-f0-9]{32}):([a-f0-9]{32}):::/i);
+      if (hm) { hashes.push({ user: hm[1], rid: Number(hm[2]), lm: hm[3], nt: hm[4] }); continue; }
+      // Kerberos keys
+      if (/\$krb5tgs\$|\$krb5asrep\$/i.test(l)) kerberos.push(l);
+    }
+    return { hashes, kerberos, count: hashes.length + kerberos.length };
+  },
+  suggestName(pd) { return pd.hashes?.[0]?.user?.split('\\').pop() || null; },
+  suggestItemName() { return 'secretsdump'; },
+};
+
+/** Impacket psexec/smbexec/wmiexec/atexec/dcomexec shell output */
+const IMPACKET_EXEC = {
+  id: 'impacket_exec', label: 'Impacket exec (*exec)', icon: '💻',
+  detect(text) {
+    let s = 0;
+    if (/Impacket/i.test(text) && /(psexec|smbexec|wmiexec|atexec|dcomexec)/i.test(text)) s += 0.6;
+    if (/\[.\]\s*Requesting shares/i.test(text)) s += 0.3;
+    if (/\[.\]\s*Found writable share/i.test(text)) s += 0.3;
+    if (/C:\\Windows\\system32>/m.test(text) || /Microsoft Windows \[Version/i.test(text)) s += 0.2;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const target = (text.match(/(?:Target|Connecting to)\s+(\S+)/i) || [])[1] || null;
+    const tool = (text.match(/(psexec|smbexec|wmiexec|atexec|dcomexec)/i) || [])[1] || 'exec';
+    const output = text.split('\n').filter(l => !l.startsWith('[*]') && !l.startsWith('[+]') && l.trim()).map(l => l.trim());
+    return { target, tool, output, count: output.length };
+  },
+  suggestName(pd) { return pd.target || null; },
+  suggestItemName(pd) { return pd.tool || 'impacket exec'; },
+};
+
+/** Impacket GetNPUsers.py — ASREProasting */
+const IMPACKET_GETNPUSERS = {
+  id: 'impacket_getnpusers', label: 'Impacket GetNPUsers', icon: '🎫',
+  detect(text) {
+    let s = 0;
+    if (/Impacket/i.test(text) && /GetNPUsers/i.test(text)) s += 0.6;
+    if (/\$krb5asrep\$/i.test(text)) s += 0.5;
+    if (/UF_DONT_REQUIRE_PREAUTH/i.test(text)) s += 0.3;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const hashes = [];
+    for (const line of text.split('\n')) {
+      if (/\$krb5asrep\$/i.test(line)) hashes.push(line.trim());
+    }
+    return { hashes, count: hashes.length };
+  },
+  suggestName() { return null; },
+  suggestItemName() { return 'GetNPUsers (ASREProast)'; },
+};
+
+/** Impacket GetUserSPNs.py — Kerberoasting */
+const IMPACKET_GETUSERSPNS = {
+  id: 'impacket_getuserspns', label: 'Impacket GetUserSPNs', icon: '🎫',
+  detect(text) {
+    let s = 0;
+    if (/Impacket/i.test(text) && /GetUserSPNs/i.test(text)) s += 0.6;
+    if (/\$krb5tgs\$/i.test(text)) s += 0.5;
+    if (/ServicePrincipalName/i.test(text)) s += 0.2;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const hashes = [];
+    const spns = [];
+    for (const line of text.split('\n')) {
+      if (/\$krb5tgs\$/i.test(line)) { hashes.push(line.trim()); continue; }
+      const m = line.match(/^(\S+)\s+(\S+)\s+(\S+)\s+(\S+)/);
+      if (m && /\//.test(m[1]) && !/ServicePrincipalName/i.test(m[1])) {
+        spns.push({ spn: m[1], name: m[2], memberOf: m[3], delegation: m[4] });
+      }
+    }
+    return { hashes, spns, count: hashes.length };
+  },
+  suggestName() { return null; },
+  suggestItemName() { return 'GetUserSPNs (Kerberoast)'; },
+};
+
+/** Impacket getTGT.py / getST.py — ticket requests */
+const IMPACKET_GETTICKET = {
+  id: 'impacket_getticket', label: 'Impacket getTGT/getST', icon: '🎟️',
+  detect(text) {
+    let s = 0;
+    if (/Impacket/i.test(text) && /(getTGT|getST)/i.test(text)) s += 0.6;
+    if (/Saving ticket/i.test(text) || /\.ccache/i.test(text)) s += 0.3;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const tickets = [];
+    for (const m of text.matchAll(/Saving ticket in\s+(\S+)/gi)) tickets.push(m[1]);
+    const target = (text.match(/(?:Target|Using|domain)\s+(\S+)/i) || [])[1] || null;
+    return { target, tickets, count: tickets.length };
+  },
+  suggestName(pd) { return pd.target || null; },
+  suggestItemName() { return 'kerberos ticket'; },
+};
+
+/** Impacket smbclient.py / smbmap output */
+const IMPACKET_SMB = {
+  id: 'impacket_smb', label: 'Impacket SMB (smbclient/smbmap)', icon: '📂',
+  detect(text) {
+    let s = 0;
+    if (/Impacket/i.test(text) && /(smbclient|lookupsid)/i.test(text)) s += 0.5;
+    if (/smbmap/i.test(text)) s += 0.4;
+    if (/\bDisk\b.*READ|WRITE/i.test(text)) s += 0.4;
+    if (/\[.\]\s*Listing shares/i.test(text)) s += 0.3;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const shares = [];
+    for (const m of text.matchAll(/^\s*([\w$]+)\s+(Disk|IPC|Print)\s+(READ|WRITE|NO ACCESS|READ, WRITE)?/gmi)) {
+      shares.push({ name: m[1], type: m[2], access: (m[3] || 'none').trim() });
+    }
+    const target = (text.match(/(?:Target|Host):\s*(\S+)/i) || [])[1] || null;
+    return { target, shares, count: shares.length };
+  },
+  suggestName(pd) { return pd.target || null; },
+  suggestItemName() { return 'smb shares'; },
+};
+
+/** Impacket lookupsid.py — SID enumeration */
+const IMPACKET_LOOKUPSID = {
+  id: 'impacket_lookupsid', label: 'Impacket lookupsid', icon: '👤',
+  detect(text) {
+    let s = 0;
+    if (/Impacket/i.test(text) && /lookupsid/i.test(text)) s += 0.6;
+    if (/S-1-5-21-/i.test(text) && /SidTypeUser|SidTypeGroup/i.test(text)) s += 0.5;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const entries = [];
+    for (const m of text.matchAll(/(\d+):\s*(S-[\d-]+)\s+(\S+)\s+\((\w+)\)/g)) {
+      entries.push({ rid: Number(m[1]), sid: m[2], name: m[3], type: m[4] });
+    }
+    return { entries, count: entries.length };
+  },
+  suggestName() { return null; },
+  suggestItemName() { return 'lookupsid'; },
+};
+
+/** Impacket ntlmrelayx — NTLM relay */
+const IMPACKET_NTLMRELAY = {
+  id: 'impacket_ntlmrelay', label: 'Impacket ntlmrelayx', icon: '🔄',
+  detect(text) {
+    let s = 0;
+    if (/Impacket/i.test(text) && /ntlmrelayx/i.test(text)) s += 0.6;
+    if (/\[.\]\s*Servers started/i.test(text)) s += 0.3;
+    if (/\[.\]\s*HTTPD.*started|SMBd.*started/i.test(text)) s += 0.2;
+    if (/Authenticating against/i.test(text)) s += 0.2;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const relayed = [];
+    for (const line of text.split('\n')) {
+      if (/Authenticating against|relay.*succeeded|SAMRDump/i.test(line)) relayed.push(line.trim());
+    }
+    return { relayed, count: relayed.length };
+  },
+  suggestName() { return null; },
+  suggestItemName() { return 'ntlmrelayx'; },
+};
+
+/** Impacket responder-like / GetADUsers / rpcdump / samrdump / reg etc. (generic Impacket) */
+const IMPACKET_GENERIC = {
+  id: 'impacket_generic', label: 'Impacket (generic)', icon: '🧰',
+  detect(text) {
+    let s = 0;
+    if (/Impacket\s+v/i.test(text)) s += 0.4;
+    if (/Copyright.*SECUREAUTH|fortra/i.test(text)) s += 0.3;
+    if (/(GetADUsers|rpcdump|samrdump|reg\.py|addcomputer|ticketer|raiseChild|findDelegation|getPac|describeTicket)/i.test(text)) s += 0.3;
+    return Math.min(1, s);
+  },
+  parse(text) {
+    const tool = (text.match(/(GetADUsers|rpcdump|samrdump|reg|addcomputer|ticketer|raiseChild|findDelegation|getPac|describeTicket|mimikatz|goldenPac|getST|getTGT|mssqlclient|mssqlattack|dpapi|esentutl|wmipersist|services|ifmap|opdump|netview)\b/i) || [])[1] || 'unknown';
+    const output = text.split('\n').filter(l => l.trim() && !l.startsWith('Impacket')).map(l => l.trim());
+    return { tool, output, count: output.length };
+  },
+  suggestName() { return null; },
+  suggestItemName(pd) { return `impacket ${pd.tool}`; },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  PARSER REGISTRY
+// ─────────────────────────────────────────────────────────────────────────────
+
 export const PARSERS = [
   // ── IP Addresses (plain single address detection) ──
   IP_ADDRESS_V4,
@@ -3041,9 +4577,94 @@ export const PARSERS = [
   // ── Scanning ──
   NMAP,
   PORT_SCAN,
+  NAABU,
   WEB_FUZZ,
   NIKTO,
   DNS_LOOKUP,
+
+  // ── Web Fuzzing ──
+  GOBUSTER,
+  FFUF,
+  WFUZZ,
+
+  // ── Vulnerability Scanning ──
+  NUCLEI,
+  JAELES,
+
+  // ── XSS ──
+  DALFOX,
+  XSSTRIKE,
+  KXSS,
+  AIRIXSS,
+
+  // ── SQL Injection ──
+  SQLMAP,
+  GHAURI,
+
+  // ── HTTP Probing ──
+  HTTPX,
+  HTTPROBE,
+  TLSX,
+
+  // ── Subdomain & DNS Discovery ──
+  AMASS,
+  SUBFINDER,
+  GITHUB_SUBDOMAINS,
+  DIG,
+  DNSX,
+  MASS_DNS,
+  DNSGEN,
+  HAKREVDNS,
+  PRIPS,
+  CERTSTREAM,
+
+  // ── Web Crawling & URL Discovery ──
+  KATANA,
+  GOSPIDER,
+  HAKRAWLER,
+  CARIDDI,
+  GAU,
+  WAYBACKURLS,
+  WAYMORE,
+
+  // ── JS / Parameter / Secret Analysis ──
+  SUBJS,
+  LINKFINDER,
+  SECRETFINDER,
+  JSUBFINDER,
+  PARAMSPIDER,
+  ARJUN,
+  X8,
+  URL_UTILS,
+
+  // ── Secret & Credential Scanning ──
+  TRUFFLEHOG,
+  GITROB,
+
+  // ── OSINT / Internet-wide ──
+  SHODAN,
+  CENSYS,
+  METABIGOR,
+
+  // ── Cloud Security ──
+  AWS_CLI,
+  CLOUDENUM,
+  S3SCANNER,
+
+  // ── Privilege Escalation ──
+  LINPEAS,
+  FIND_SUID,
+
+  // ── Impacket ──
+  IMPACKET_SECRETSDUMP,
+  IMPACKET_EXEC,
+  IMPACKET_GETNPUSERS,
+  IMPACKET_GETUSERSPNS,
+  IMPACKET_GETTICKET,
+  IMPACKET_SMB,
+  IMPACKET_LOOKUPSID,
+  IMPACKET_NTLMRELAY,
+  IMPACKET_GENERIC,
 
   // ── Connections & Routing ──
   NETSTAT,
@@ -3101,6 +4722,7 @@ export const PARSERS = [
 
   // ── Logs ──
   AUTH_LOG,
+  LAST_LOG,
 
   // ── Email ──
   EMAIL_HEADERS,

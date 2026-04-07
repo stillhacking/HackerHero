@@ -6,8 +6,8 @@
 import {
   State, DB, UI,
   formatDate, formatDateFull, escHtml, qs, qsa, showPanel,
-} from './core.js?v=20260406u';
-import { AssetsPanel } from './panel-assets.js?v=20260406u';
+} from './core.js?v=20260407g';
+import { AssetsPanel } from './panel-assets.js?v=20260407g';
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  CHANGELOG PANEL
@@ -16,6 +16,7 @@ import { AssetsPanel } from './panel-assets.js?v=20260406u';
 export const ChangelogPanel = {
   _filterOperator: '',
   _filterAction: '',
+  _filterSource: '',
 
   async render() {
     if (!State.activeMission) {
@@ -26,21 +27,27 @@ export const ChangelogPanel = {
 
     const operators = [...new Set(entries.map(e => e.operator))].sort();
     const actions   = [...new Set(entries.map(e => e.action))].sort();
+    const sources   = [...new Set(entries.map(e => e.sourceOperation).filter(Boolean))].sort();
 
     const filtered = entries.filter(e => {
       if (this._filterOperator && e.operator !== this._filterOperator) return false;
       if (this._filterAction   && e.action   !== this._filterAction)   return false;
+      if (this._filterSource   && (e.sourceOperation || '') !== this._filterSource) return false;
       return true;
     });
 
-    const rowsHtml = filtered.map((e) => `
-      <div class="changelog-entry cl-entry-link" data-cl-id="${e.id}" data-entity-type="${e.entityType}" data-entity-id="${escHtml(e.entityId)}">
+    const rowsHtml = filtered.map((e) => {
+      const isMerge = e.source === 'merge';
+      const isSummary = isMerge && e.action === 'merge';
+      return `
+      <div class="changelog-entry cl-entry-link${isMerge ? ' cl-merge-entry' : ''}${isSummary ? ' cl-merge-summary' : ''}" data-cl-id="${e.id}" data-entity-type="${e.entityType}" data-entity-id="${escHtml(e.entityId)}">
         <span class="cl-timestamp mono" title="${formatDateFull(e.timestamp)}">${formatDate(e.timestamp)}</span>
-        <span class="cl-operator">${escHtml(e.operator)}</span>
+        <span class="cl-operator">${isMerge ? '<span class="cl-merge-badge">🔀</span> ' : ''}${escHtml(isMerge ? (e.entityName || 'merge') : e.operator)}</span>
         <span class="cl-action ${escHtml(e.action)}">${escHtml(e.action)}</span>
         <span class="cl-desc">${escHtml(e.description)}</span>
-        <button class="cl-delete-btn" data-action="revert-cl" data-cl-id="${e.id}" title="Revert this change">&#9100;</button>
-      </div>`).join('');
+        ${isMerge ? '' : `<button class="cl-delete-btn" data-action="revert-cl" data-cl-id="${e.id}" title="Revert this change">&#9100;</button>`}
+      </div>`;
+    }).join('');
 
     const operatorOptions = operators.map(op =>
       `<option value="${escHtml(op)}" ${this._filterOperator === op ? 'selected' : ''}>${escHtml(op)}</option>`
@@ -50,7 +57,11 @@ export const ChangelogPanel = {
       `<option value="${escHtml(a)}" ${this._filterAction === a ? 'selected' : ''}>${escHtml(a)}</option>`
     ).join('');
 
-    const isFiltered = this._filterOperator || this._filterAction;
+    const sourceOptions = sources.map(s =>
+      `<option value="${escHtml(s)}" ${this._filterSource === s ? 'selected' : ''}>${escHtml(s)}</option>`
+    ).join('');
+
+    const isFiltered = this._filterOperator || this._filterAction || this._filterSource;
 
     qs('#panel-changelog').innerHTML = `
       <div class="panel-header">
@@ -64,6 +75,10 @@ export const ChangelogPanel = {
             <option value="">All actions</option>
             ${actionOptions}
           </select>
+          ${sources.length ? `<select id="cl-filter-source" class="input-sm" style="width:auto;min-width:130px" title="Filter by source operation">
+            <option value="">All sources</option>
+            ${sourceOptions}
+          </select>` : ''}
           ${isFiltered ? `<button class="btn btn-ghost btn-sm" id="cl-filter-clear" title="Clear filters">✕ Clear</button>` : ''}
           <span class="text-dim" style="font-size:12px">${filtered.length}${isFiltered ? ` / ${entries.length}` : ''} entries</span>
         </div>
@@ -86,9 +101,15 @@ export const ChangelogPanel = {
       await this.render();
     });
 
+    qs('#cl-filter-source')?.addEventListener('change', async (e) => {
+      this._filterSource = e.target.value;
+      await this.render();
+    });
+
     qs('#cl-filter-clear')?.addEventListener('click', async () => {
       this._filterOperator = '';
       this._filterAction   = '';
+      this._filterSource   = '';
       await this.render();
     });
 

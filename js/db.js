@@ -664,7 +664,8 @@ export const DB = {
     for (const asset of assets) {
       const subs = await DB.getSubitemsByAsset(asset.id);
       const vers = await DB.getVersionsByAsset(asset.id);
-      subitems.push(...subs);
+      // Strip merge-conflict metadata from exported subitems
+      subitems.push(...subs.map(s => { const c = { ...s }; delete c.mergeConflict; return c; }));
       versions.push(...vers);
       for (const sub of subs) {
         const sv = await DB.getSubitemVersions(sub.id);
@@ -770,19 +771,7 @@ export const DB = {
       await DB.saveSubitem(newSub);
     }
 
-    // Asset Versions
-    for (const ver of (data.versions || [])) {
-      const newVer = { ...ver, id: generateId(), assetId: remap(ver.assetId) };
-      await DB.saveAssetVersion(newVer);
-    }
-
-    // Subitem Versions
-    for (const ver of (data.subitemVersions || [])) {
-      const newVer = { ...ver, id: generateId(), subitemId: remap(ver.subitemId) };
-      await DB.saveSubitemVersion(newVer);
-    }
-
-    // Changelog – remap entity references so navigation & revert work
+    // ── Remap IDs inside snapshot / state objects ─────────────────────
     const remapState = (state) => {
       if (!state || typeof state !== 'object') return state;
       const s = { ...state };
@@ -796,6 +785,22 @@ export const DB = {
       if (Array.isArray(s.zoneIds)) s.zoneIds = s.zoneIds.map(z => remap(z));
       return s;
     };
+
+    // Asset Versions
+    for (const ver of (data.versions || [])) {
+      const newVer = { ...ver, id: generateId(), assetId: remap(ver.assetId) };
+      if (newVer.state) newVer.state = remapState(newVer.state);
+      await DB.saveAssetVersion(newVer);
+    }
+
+    // Subitem Versions
+    for (const ver of (data.subitemVersions || [])) {
+      const newVer = { ...ver, id: generateId(), subitemId: remap(ver.subitemId) };
+      if (newVer.state) newVer.state = remapState(newVer.state);
+      await DB.saveSubitemVersion(newVer);
+    }
+
+    // Changelog – remap entity references so navigation & revert work
     for (const entry of (data.changelog || [])) {
       const newEntry = {
         ...entry,
@@ -837,6 +842,477 @@ export const DB = {
     }
 
     return { missionId };
+  },
+
+  /**
+   * Merges imported data into an existing mission.
+   * Matching strategy: zones by name, assets by (name+ip) within zone,
+   * subitems by name within asset, tickets by title.
+   * NEW items are added.  Existing items are UPDATED if the source is newer
+   * (compared by updatedAt / createdAt timestamps).
+   * @param {string} existingMissionId
+   * @param {MissionExport} data
+   * @param {string} [sourceName]  Human-readable label for the source operation (shown in changelog)
+   * @returns {Promise<{zones:number,zonesUp:number,assets:number,assetsUp:number,subitems:number,subitemsUp:number,conflicts:number,tickets:number,ticketsUp:number,changelog:number}>}
+   */
+  async mergeMissionData(existingMissionId, data, sourceName = '') {
+    const { generateId, now, sanitizeImportedData, validateMissionExport } = await import('./utils.js');
+
+    const error = validateMissionExport(data);
+    if (error) throw new Error(error);
+    data = sanitizeImportedData(data);
+
+    const stats = { zones: 0, zonesUp: 0, assets: 0, assetsUp: 0, subitems: 0, subitemsUp: 0, conflicts: 0, tickets: 0, ticketsUp: 0, changelog: 0 };
+    const _now = now();
+    const _mergeFrom = sourceName ? `from "${sourceName}"` : 'via merge';
+
+    /** Write a changelog entry attributed to the merge operation */
+    const _addMergeLog = async (action, entityType, entityId, entityName, description, prev = null, next = null) => {
+      await DB.saveChangelogEntry({
+        id: generateId(),
+        missionId: existingMissionId,
+        timestamp: _now,
+        operator: '🔀 merge',
+        source: 'merge',
+        sourceOperation: sourceName || '',
+        action, entityType, entityId, entityName,
+        description, previousState: prev, newState: next,
+      });
+    };
+
+    /** Return true if src timestamp is strictly after dst */
+    const isNewer = (src, dst) => {
+      const ts = (o) => o?.updatedAt || o?.createdAt || '';
+      return ts(src) > ts(dst);
+    };
+
+    /** True if both have been edited (different updatedAt and both after createdAt) */
+    const bothEdited = (src, dst) => {
+      const ts = (o) => o?.updatedAt || '';
+      return ts(src) && ts(dst) && ts(src) !== ts(dst);
+    };
+
+    // ── Load existing data for matching ──────────────────────────────────
+    const existingMission = await DB.getMission(existingMissionId);
+    const existingZones   = await DB.getZonesByMission(existingMissionId);
+    const existingAssets  = await DB.getAssetsByMission(existingMissionId);
+    const existingTickets = await DB.getTicketsByMission(existingMissionId);
+
+    const zoneByName  = new Map(existingZones.map(z => [z.name?.toLowerCase(), z]));
+    const assetKey    = (a) => `${(a.name || '').toLowerCase()}||${(a.ip || '').toLowerCase()}`;
+    const assetByKey  = new Map(existingAssets.map(a => [assetKey(a), a]));
+    const ticketByTitle = new Map(existingTickets.map(t => [t.title?.toLowerCase(), t]));
+
+    // Build a map from imported IDs → real IDs (existing or newly created)
+    const idMap = new Map();
+    const remap = (oldId) => {
+      if (!idMap.has(oldId)) idMap.set(oldId, generateId());
+      return idMap.get(oldId);
+    };
+
+    // Map the original mission ID to the existing one
+    idMap.set(data.mission.id, existingMissionId);
+
+    // ── Merge mission details ────────────────────────────────────────────
+    {
+      const src = data.mission;
+      const dst = existingMission;
+      const srcNewer = isNewer(src, dst);
+
+      // targets: union by name
+      const targetNames = new Set((dst.targets || []).map(t => t.name?.toLowerCase()));
+      const mergedTargets = [...(dst.targets || [])];
+      for (const t of (src.targets || [])) {
+        if (!targetNames.has(t.name?.toLowerCase())) {
+          mergedTargets.push(t);
+          targetNames.add(t.name?.toLowerCase());
+        }
+      }
+
+      // objectives: union by text
+      const objTexts = new Set((dst.objectives || []).map(o => o.text?.toLowerCase()));
+      const mergedObjectives = [...(dst.objectives || [])];
+      for (const o of (src.objectives || [])) {
+        if (!objTexts.has(o.text?.toLowerCase())) {
+          mergedObjectives.push(o);
+          objTexts.add(o.text?.toLowerCase());
+        }
+      }
+
+      const updated = {
+        ...dst,
+        targets:    mergedTargets,
+        objectives: mergedObjectives,
+        // newest-wins for text fields
+        context:  srcNewer ? (src.context  ?? dst.context)  : dst.context,
+        timezone: srcNewer ? (src.timezone ?? dst.timezone) : dst.timezone,
+        // codename is identity — never overwrite from source
+        codename: dst.codename,
+        status:   srcNewer ? (src.status   || dst.status)   : dst.status,
+        // preserve creation metadata
+        id:        existingMissionId,
+        createdAt: dst.createdAt,
+        createdBy: dst.createdBy,
+        updatedAt: srcNewer ? src.updatedAt : dst.updatedAt,
+        updatedBy: srcNewer ? src.updatedBy : dst.updatedBy,
+      };
+
+      const changed = (
+        updated.context  !== dst.context  ||
+        updated.timezone !== dst.timezone ||
+        updated.status   !== dst.status   ||
+        mergedTargets.length    !== (dst.targets    || []).length ||
+        mergedObjectives.length !== (dst.objectives || []).length
+      );
+
+      if (changed) {
+        await DB.saveMission(updated);
+        await _addMergeLog(
+          'update', 'mission', existingMissionId, updated.codename,
+          `Updated mission details ${_mergeFrom}`,
+          dst, updated
+        );
+      }
+    }
+    for (const zone of (data.zones || [])) {
+      const match = zoneByName.get(zone.name?.toLowerCase());
+      if (match) {
+        idMap.set(zone.id, match.id);
+        // Update existing zone if source is newer
+        if (isNewer(zone, match)) {
+          const updated = { ...match, ...zone, id: match.id, missionId: existingMissionId };
+          await DB.saveZone(updated);
+          await _addMergeLog('update', 'zone', match.id, zone.name, `Updated zone "${zone.name}" ${_mergeFrom}`, match, updated);
+          zoneByName.set(zone.name?.toLowerCase(), updated);
+          stats.zonesUp++;
+        }
+      } else {
+        const newId = remap(zone.id);
+        const created = { ...zone, id: newId, missionId: existingMissionId };
+        await DB.saveZone(created);
+        await _addMergeLog('create', 'zone', newId, zone.name, `Created zone "${zone.name}" ${_mergeFrom}`, null, created);
+        stats.zones++;
+        zoneByName.set(zone.name?.toLowerCase(), created);
+      }
+    }
+
+    // ── Helper: remap zoneIds for an imported asset ───────────────────────
+    const remapZoneIds = (asset) => {
+      if (Array.isArray(asset.zoneIds)) {
+        return asset.zoneIds.map(zid => idMap.get(zid) || remap(zid));
+      } else if (asset.zoneId) {
+        return [idMap.get(asset.zoneId) || remap(asset.zoneId)];
+      }
+      return [];
+    };
+
+    // ── Merge assets ─────────────────────────────────────────────────────
+    for (const asset of (data.assets || [])) {
+      const key = assetKey(asset);
+      const match = assetByKey.get(key);
+      if (match) {
+        idMap.set(asset.id, match.id);
+        // Always merge properties: union statuses, OR isKey, newest wins for rest
+        const zoneIds = remapZoneIds(asset);
+        const srcStatuses = Array.isArray(asset.statuses) ? asset.statuses : [];
+        const dstStatuses = Array.isArray(match.statuses) ? match.statuses : [];
+        const mergedStatuses = [...new Set([...dstStatuses, ...srcStatuses])];
+        const winner = isNewer(match, asset) ? match : asset;
+        // Snapshot the current state before modifying
+        await DB.saveAssetVersion({
+          id: generateId(), assetId: match.id, timestamp: _now,
+          operator: 'merge', state: { ...match },
+        });
+        const updated = {
+          ...match,
+          description: winner.description ?? match.description,
+          icon:        winner.icon ?? match.icon,
+          type:        winner.type || match.type,
+          isKey:       !!(asset.isKey || match.isKey),
+          statuses:    mergedStatuses,
+          zoneIds:     [...new Set([...(match.zoneIds || []), ...zoneIds])],
+          parentId:    asset.parentId ? (idMap.get(asset.parentId) || remap(asset.parentId)) : match.parentId,
+          updatedAt:   _now,
+          updatedBy:   'merge',
+          id:          match.id,
+          missionId:   existingMissionId,
+          name:        match.name,
+          createdAt:   match.createdAt,
+          createdBy:   match.createdBy,
+        };
+        delete updated.zoneId;
+        await DB.saveAsset(updated);
+        await _addMergeLog('update', 'asset', match.id, match.name, `Updated asset "${match.name}" ${_mergeFrom}`, match, updated);
+        assetByKey.set(key, updated);
+        stats.assetsUp++;
+      } else {
+        const newId = remap(asset.id);
+        const zoneIds = remapZoneIds(asset);
+        const newAsset = {
+          ...asset,
+          id: newId,
+          missionId: existingMissionId,
+          zoneIds,
+          parentId: asset.parentId ? (idMap.get(asset.parentId) || remap(asset.parentId)) : null,
+        };
+        delete newAsset.zoneId;
+        await DB.saveAsset(newAsset);
+        await _addMergeLog('create', 'asset', newId, asset.name, `Created asset "${asset.name}" ${_mergeFrom}`, null, newAsset);
+        stats.assets++;
+        assetByKey.set(key, newAsset);
+      }
+    }
+
+    // ── Merge subitems ───────────────────────────────────────────────────
+    // Build lookup: existing subitems indexed by (assetId + name)
+    const existingSubitems = [];
+    for (const asset of existingAssets) {
+      const subs = await DB.getSubitemsByAsset(asset.id);
+      existingSubitems.push(...subs);
+    }
+    // Also load subitems for newly created assets (they won't have any yet,
+    // but the map helps for assets that matched and already had subitems)
+    const subKey = (s) => `${s.assetId}||${(s.name || '').toLowerCase()}`;
+    const subByKey = new Map(existingSubitems.map(s => [subKey(s), s]));
+
+    for (const sub of (data.subitems || [])) {
+      const mappedAssetId = idMap.get(sub.assetId) || remap(sub.assetId);
+      const key = `${mappedAssetId}||${(sub.name || '').toLowerCase()}`;
+      const match = subByKey.get(key);
+      if (match) {
+        idMap.set(sub.id, match.id);
+        const srcContent = (sub.content || '').trim();
+        const dstContent = (match.content || '').trim();
+        const contentDiffers = srcContent !== dstContent;
+
+        if (contentDiffers) {
+          // Snapshot current target state as a version
+          await DB.saveSubitemVersion({
+            id: generateId(), subitemId: match.id, timestamp: _now,
+            operator: 'merge (pre-merge target)',
+            state: { ...match },
+          });
+
+          // Determine winner and loser.
+          // Source wins by default (tie → source) because the user explicitly
+          // chose to import/merge these changes into the target.
+          const targetIsNewer = isNewer(match, sub);
+          const winner = targetIsNewer ? match : sub;
+          const loser  = targetIsNewer ? sub : match;
+          const srcWins = !targetIsNewer;
+
+          // Merge statuses (union)
+          const srcSt = Array.isArray(sub.statuses) ? sub.statuses : [];
+          const dstSt = Array.isArray(match.statuses) ? match.statuses : [];
+          const mergedStatuses = [...new Set([...dstSt, ...srcSt])];
+
+          // Both modified → conflict
+          const isConflict = bothEdited(sub, match);
+
+          const updated = {
+            ...match,
+            content:    winner.content,
+            parsedType: winner.parsedType ?? match.parsedType,
+            parsedData: winner.parsedData ?? match.parsedData,
+            icon:       winner.icon ?? match.icon,
+            statuses:   mergedStatuses,
+            parentId:   sub.parentId ? (idMap.get(sub.parentId) || remap(sub.parentId)) : match.parentId,
+            updatedAt:  _now,
+            updatedBy:  'merge',
+            id:         match.id,
+            assetId:    mappedAssetId,
+            createdAt:  match.createdAt,
+            createdBy:  match.createdBy,
+          };
+
+          if (isConflict) {
+            // Store the losing version for conflict resolution
+            updated.mergeConflict = {
+              content:   loser.content,
+              operator:  loser.updatedBy || loser.createdBy || '?',
+              timestamp: loser.updatedAt || loser.createdAt || '',
+              winner:    srcWins ? 'source' : 'target',
+            };
+            stats.conflicts++;
+          } else {
+            // Clean up any previous conflict flag
+            delete updated.mergeConflict;
+          }
+
+          await DB.saveSubitem(updated);
+
+          // Also snapshot the merge result as a version
+          await DB.saveSubitemVersion({
+            id: generateId(), subitemId: match.id, timestamp: _now,
+            operator: `merge${isConflict ? ' (conflict — newest wins)' : ''}`,
+            state: { ...updated },
+          });
+
+          const conflictSuffix = isConflict ? ' ⚠️ conflict' : '';
+          await _addMergeLog(
+            'update', 'subitem', match.id, sub.name,
+            `Updated data item "${sub.name}" ${_mergeFrom}${conflictSuffix}`,
+            match, updated
+          );
+
+          subByKey.set(key, updated);
+          stats.subitemsUp++;
+        } else {
+          // Same content — just merge statuses if needed
+          const srcSt = Array.isArray(sub.statuses) ? sub.statuses : [];
+          const dstSt = Array.isArray(match.statuses) ? match.statuses : [];
+          const merged = [...new Set([...dstSt, ...srcSt])];
+          if (merged.length !== dstSt.length || !merged.every(s => dstSt.includes(s))) {
+            const updated = { ...match, statuses: merged, updatedAt: _now, updatedBy: 'merge' };
+            delete updated.mergeConflict;
+            await DB.saveSubitem(updated);
+            subByKey.set(key, updated);
+            stats.subitemsUp++;
+          }
+        }
+      } else {
+        const newId = remap(sub.id);
+        const newSub = {
+          ...sub,
+          id: newId,
+          assetId: mappedAssetId,
+          parentId: sub.parentId ? (idMap.get(sub.parentId) || remap(sub.parentId)) : null,
+        };
+        await DB.saveSubitem(newSub);
+        await _addMergeLog('create', 'subitem', newId, sub.name, `Created data item "${sub.name}" ${_mergeFrom}`, null, newSub);
+        stats.subitems++;
+        subByKey.set(key, newSub);
+      }
+    }
+
+    // ── Remap IDs inside snapshot / state objects ─────────────────────
+    const remapState = (state) => {
+      if (!state || typeof state !== 'object') return state;
+      const s = { ...state };
+      if (s.id)        s.id        = idMap.get(s.id) || s.id;
+      if (s.missionId) s.missionId = existingMissionId;
+      if (s.parentId)  s.parentId  = idMap.get(s.parentId) || s.parentId;
+      if (s.assetId)   s.assetId   = idMap.get(s.assetId) || s.assetId;
+      if (s.refId)     s.refId     = idMap.get(s.refId) || s.refId;
+      if (s.ticketId)  s.ticketId  = idMap.get(s.ticketId) || s.ticketId;
+      if (s.zoneId)    s.zoneId    = idMap.get(s.zoneId) || s.zoneId;
+      if (Array.isArray(s.zoneIds)) s.zoneIds = s.zoneIds.map(z => idMap.get(z) || z);
+      return s;
+    };
+
+    // ── Merge asset versions (always add — they are snapshots) ───────────
+    for (const ver of (data.versions || [])) {
+      const mappedAssetId = idMap.get(ver.assetId);
+      if (!mappedAssetId) continue;
+      const newVer = { ...ver, id: generateId(), assetId: mappedAssetId };
+      if (newVer.state) newVer.state = remapState(newVer.state);
+      await DB.saveAssetVersion(newVer);
+    }
+
+    // ── Merge subitem versions ───────────────────────────────────────────
+    for (const ver of (data.subitemVersions || [])) {
+      const mappedSubId = idMap.get(ver.subitemId);
+      if (!mappedSubId) continue;
+      const newVer = { ...ver, id: generateId(), subitemId: mappedSubId };
+      if (newVer.state) newVer.state = remapState(newVer.state);
+      await DB.saveSubitemVersion(newVer);
+    }
+
+    // ── Merge tickets ────────────────────────────────────────────────────
+    for (const ticket of (data.tickets || [])) {
+      const match = ticketByTitle.get(ticket.title?.toLowerCase());
+      if (match) {
+        idMap.set(ticket.id, match.id);
+        // Update existing ticket if source is newer
+        if (isNewer(ticket, match)) {
+          const updated = {
+            ...match,
+            ...ticket,
+            id: match.id,
+            missionId: existingMissionId,
+            refId: ticket.refId ? (idMap.get(ticket.refId) || remap(ticket.refId)) : match.refId,
+            createdAt: match.createdAt,
+            createdBy: match.createdBy,
+          };
+          await DB.saveTicket(updated);
+          await _addMergeLog('update', 'ticket', match.id, ticket.title, `Updated ticket "${ticket.title}" ${_mergeFrom}`, match, updated);
+          ticketByTitle.set(ticket.title?.toLowerCase(), updated);
+          stats.ticketsUp++;
+        }
+      } else {
+        const newId = remap(ticket.id);
+        const newTicket = {
+          ...ticket,
+          id: newId,
+          missionId: existingMissionId,
+          refId: ticket.refId ? (idMap.get(ticket.refId) || remap(ticket.refId)) : null,
+        };
+        await DB.saveTicket(newTicket);
+        await _addMergeLog('create', 'ticket', newId, ticket.title, `Created ticket "${ticket.title}" ${_mergeFrom}`, null, newTicket);
+        stats.tickets++;
+        ticketByTitle.set(ticket.title?.toLowerCase(), newTicket);
+      }
+    }
+
+    // ── Merge ticket messages ────────────────────────────────────────────
+    for (const msg of (data.ticketMessages || [])) {
+      const mappedTicketId = idMap.get(msg.ticketId);
+      if (!mappedTicketId) continue;
+      // Add messages for all mapped tickets (new and existing)
+      // Use a new ID to avoid collisions with existing messages
+      await DB.saveTicketMessage({ ...msg, id: generateId(), ticketId: mappedTicketId });
+    }
+
+    // ── Merge changelog (always add new entries) ─────────────────────────
+    for (const entry of (data.changelog || [])) {
+      const newEntry = {
+        ...entry,
+        id: generateId(),
+        missionId: existingMissionId,
+        sourceOperation: sourceName || '',
+        entityId: entry.entityId ? (idMap.get(entry.entityId) || entry.entityId) : entry.entityId,
+        previousState: remapState(entry.previousState),
+        newState: remapState(entry.newState),
+      };
+      await DB.saveChangelogEntry(newEntry);
+      stats.changelog++;
+    }
+
+    // ── Merge attachments ────────────────────────────────────────────────
+    for (const att of (data.attachments || [])) {
+      const mappedRefId = att.refId ? (idMap.get(att.refId) || att.refId) : null;
+      await DB.saveAttachment({
+        ...att,
+        id: generateId(),
+        missionId: existingMissionId,
+        refId: mappedRefId,
+      });
+    }
+
+    // ── Summary changelog entry ──────────────────────────────────────────
+    const summaryParts = [];
+    if (stats.zones || stats.zonesUp)       summaryParts.push(`${stats.zones} zones (+${stats.zonesUp} updated)`);
+    if (stats.assets || stats.assetsUp)     summaryParts.push(`${stats.assets} assets (+${stats.assetsUp} updated)`);
+    if (stats.subitems || stats.subitemsUp) summaryParts.push(`${stats.subitems} data (+${stats.subitemsUp} updated)`);
+    if (stats.tickets || stats.ticketsUp)   summaryParts.push(`${stats.tickets} tickets (+${stats.ticketsUp} updated)`);
+    if (stats.conflicts)                     summaryParts.push(`${stats.conflicts} conflicts`);
+    await DB.saveChangelogEntry({
+      id: generateId(),
+      missionId: existingMissionId,
+      timestamp: _now,
+      operator: '🔀 merge',
+      source: 'merge',
+      sourceOperation: sourceName || '',
+      action: 'merge',
+      entityType: 'mission',
+      entityId: existingMissionId,
+      entityName: sourceName || '?',
+      description: `Merge ${_mergeFrom}: ${summaryParts.join(', ') || 'no changes'}${stats.conflicts ? ' ⚠️' : ''}`,
+      previousState: null,
+      newState: null,
+    });
+
+    return stats;
   },
 
 };

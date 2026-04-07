@@ -48,18 +48,18 @@ Want to try it instantly? Open **Settings → Demo Mode → 🎭 Load Demo Data*
 
 | Feature | Description |
 |---|---|
-| **Operations** | Create, edit, archive, export, import, delete operations with codename, targets, objectives, mission briefing (Markdown), and timezone |
+| **Operations** | Create, edit, archive, export, import, delete operations with codename, targets, objectives, mission briefing (Markdown), and timezone. Click the operation name in the header to **rename inline** at any time |
 | **Duplicate protection** | Prevents creating or importing operations with duplicate codenames |
 | **Overview** | Mission dashboard: KPI strip, activity sparkline (30 d), recent activity feed, objectives progress ring (pending → in-progress → achieved → dropped), open tickets, top operators, targets, mission briefing with Markdown preview |
 | **Zones & Assets** | Network zones with color, multi-zone asset assignment (`zoneIds[]`), nested asset tree with parent/child, keyboard navigation, collapsible columns, status badges (Pwned 🔓, HVT 🎯, Interesting 👁, Todo 📌, Done ✅) |
 | **142 SVG Icons** | 12 icon categories (servers, networking, cloud, endpoints, apps…) with filterable picker and parser-to-icon auto-mapping |
-| **60 Parsers** | Auto-detect and parse command outputs: `nmap`, `ip addr`, `netstat`, `ss`, `ps aux`, `systeminfo`, `/etc/passwd`, `/etc/shadow`, `sudo -l`, `crontab`, `iptables`, SSH keys, HTTP headers, DNS, Nikto, Gobuster, hashes, and 40+ more |
+| **118 Parsers** | Auto-detect and parse outputs from 118 security tools in 26 categories: nmap, Nuclei, SQLMap, Gobuster, ffuf, httpx, Amass, Subfinder, Katana, Shodan, LinPEAS, Impacket, TruffleHog, AWS CLI, and 100+ more |
 | **Version History** | Every asset and data item edit saves a snapshot; LCS-based line-level diff with color-coded comparison; restore any previous version |
 | **Search** | Full-text + query language (`HVT`, `PWNED AND hasTickets`, `inZone=DMZ`) + advanced panel (date range, operator, zone, type, regex) |
-| **Changelog** | Full audit log with per-operator attribution and full state snapshots; click ⌫ to revert any change; click any entry to navigate to the entity |
+| **Changelog** | Full audit log with per-operator attribution and full state snapshots; filter by operator, action, or source operation; click ⌫ to revert any change; click any entry to navigate to the entity |
 | **Tickets** | Issue tracker with priorities (Low 🟢 / Medium 🟡 / High 🟠 / Critical 🔴), linked to zones/assets/data items, forum-style message threads with Markdown and image attachments |
 | **Image Attachments** | Attach images to assets, data items, and ticket messages; thumbnail strip, full-screen lightbox gallery with ←/→ keyboard navigation, 10 MB limit per image |
-| **Import / Export** | JSON import/export per operation or all at once; full ID remapping on import to avoid collisions; cross-operator import; exportVersion 2 with attachments |
+| **Import / Export / Merge** | 3 import workflows: **create** new operations (auto-suffix duplicates), **update** an existing operation from file, **merge** two live operations with smart conflict detection. Full ID remapping, cross-operator support, `updatedAt`-based newest-wins logic, merge attribution (🔀 badge) in changelog |
 | **Demo Mode** | Generate 3 realistic operations (BLACKOUT, GHOSTWIRE, REDSAND) with 6 operators, real parsed data, tickets, and 30+ days of changelog — removable in one click |
 | **8 Themes** | Dark · Light · Focus · Matrix (animated rain) · Upside Down (reflections + nav flicker) · Operation (classified) · WarGames (amber) · Hack The Planet (cyan) |
 | **Operator Identity** | No auth — each operator picks a name (default: random Magic creature name); all changes are attributed |
@@ -100,41 +100,42 @@ Want to try it instantly? Open **Settings → Demo Mode → 🎭 Load Demo Data*
 
 ```
 HackerHero/
-├── index.html              HTML shell: header, sidebar, 8 panels, modal, overlays (~408 lines)
+├── index.html              HTML shell: header, sidebar, 8 panels, modal, overlays (~410 lines)
 ├── favicon.svg             Logo (Eddie Munson / Stranger Things style)
 ├── Dockerfile              Docker image definition (nginx:alpine, serves on port 80)
 ├── README.md               This file
 ├── css/
-│   └── app.css             All styles + 8 themes via CSS custom properties (~3,460 lines)
+│   └── app.css             All styles + 8 themes via CSS custom properties (~3,480 lines)
 ├── js/
-│   ├── app.js              Thin orchestrator: imports, routing, init (~140 lines)
+│   ├── app.js              Thin orchestrator: imports, routing, init, inline rename (~190 lines)
 │   ├── core.js             Shared core: State, UI, ThemeManager, Lightbox, TZClock,
-│   │                       ImportExport, renderMarkdown, renderAttachmentStrip (~680 lines)
-│   ├── db.js               IndexedDB wrapper: 12 stores, 55 async methods, schema v7 (~970 lines)
+│   │                       ImportExport, renderMarkdown, renderAttachmentStrip (~820 lines)
+│   ├── db.js               IndexedDB wrapper: 12 stores, 57 async methods, schema v7,
+│   │                       import + smart merge engine (~1,440 lines)
 │   ├── utils.js            Helpers: UUID, dates, DOM, escHtml, sanitize, validate (~380 lines)
 │   ├── magic-names.js      ~290 Magic: The Gathering creature names (~340 lines)
-│   ├── parsers.js          60 command output parsers in 12 categories (~3,160 lines)
+│   ├── parsers.js          118 command output parsers in 26 categories (~4,780 lines)
 │   ├── asset-icons.js      142 SVG icons in 12 categories (~570 lines)
 │   ├── demo-data.js        Demo data generator: 3 ops, 6 operators (~920 lines)
-│   ├── panel-missions.js   Operations CRUD + duplicate protection (~370 lines)
+│   ├── panel-missions.js   Operations CRUD + duplicate protection (~375 lines)
 │   ├── panel-overview.js   Dashboard: KPIs, sparkline, activity, objectives (~510 lines)
-│   ├── panel-assets.js     Zones, asset tree, data viewer, parsers, diff (~2,180 lines)
+│   ├── panel-assets.js     Zones, asset tree, data viewer, parsers, diff (~2,260 lines)
 │   ├── panel-search.js     Search: full-text, query language, advanced (~440 lines)
-│   ├── panel-changelog.js  Audit log with filters + revert (~180 lines)
+│   ├── panel-changelog.js  Audit log with 3 filters + revert (~200 lines)
 │   ├── panel-tickets.js    Tickets: list, detail, forum messages (~470 lines)
 │   ├── panel-settings.js   Identity, themes, data management, demo (~200 lines)
-│   └── panel-docs.js       Built-in documentation (9 tabs, ~750 lines)
+│   └── panel-docs.js       Built-in documentation (9 tabs, ~780 lines)
 └── docs/
     └── index.html          Offline standalone documentation
 ```
 
-**~16,100 lines of code** — zero dependencies, zero build step, zero framework.
+**~18,500 lines of code** — zero dependencies, zero build step, zero framework.
 
 ---
 
 ## 🗄️ Data Model
 
-All data is stored in **IndexedDB** (`HackerHeroDB`, schema v7) with 12 object stores:
+All data is stored in **IndexedDB** (`HackerHeroDB`, schema v7) with 12 object stores. The merge engine supports smart conflict detection with `updatedAt`-based newest-wins resolution:
 
 | Store | Key | Indexes |
 |---|---|---|

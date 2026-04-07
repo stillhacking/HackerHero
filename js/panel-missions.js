@@ -7,7 +7,7 @@ import {
   State, DB, UI, logChange, showPanel, enableMissionNav, TZClock, ImportExport,
   generateId, now, formatDate, escHtml, qs, qsa,
   buildTimezoneOptions, renderMarkdown,
-} from './core.js?v=20260406u';
+} from './core.js?v=20260407g';
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  MISSIONS PANEL
@@ -67,6 +67,7 @@ export const MissionsPanel = {
       <div class="panel-header">
         <h2>Operations</h2>
         <div class="panel-actions">
+          <button class="btn btn-ghost btn-sm" id="btn-merge-missions" title="Merge two operations">🔀 Merge</button>
           <button class="btn btn-secondary" id="btn-import-mission">⬆ Import</button>
           <button class="btn btn-primary"   id="btn-new-mission">+ New Operation</button>
         </div>
@@ -101,6 +102,7 @@ export const MissionsPanel = {
         </div>
         <div class="mission-card-footer">
           <button class="btn btn-ghost btn-sm" data-action="export" data-id="${m.id}" title="Export JSON">⬇ Export</button>
+          <button class="btn btn-ghost btn-sm" data-action="update" data-id="${m.id}" title="Update from file">⬆ Update</button>
           <button class="btn btn-ghost btn-sm" data-action="edit"   data-id="${m.id}">✎ Edit</button>
           <button class="btn btn-ghost btn-sm" data-action="${isArchived ? 'unarchive' : 'archive'}" data-id="${m.id}" title="${isArchived ? 'Restore' : 'Archive'}">${isArchived ? '↩ Restore' : '📦 Archive'}</button>
           ${!isArchived ? `<button class="btn btn-primary btn-sm" data-action="enter" data-id="${m.id}">→ Enter</button>` : ''}
@@ -111,6 +113,7 @@ export const MissionsPanel = {
   bindEvents() {
     qs('#btn-new-mission').addEventListener('click', () => this.openMissionForm());
     qs('#btn-import-mission').addEventListener('click', () => ImportExport.openImportDialog());
+    qs('#btn-merge-missions')?.addEventListener('click', () => ImportExport.openMergeDialog());
     qs('#btn-toggle-archived')?.addEventListener('click', async () => {
       this._showArchived = !this._showArchived;
       await this.render();
@@ -124,6 +127,7 @@ export const MissionsPanel = {
         if (action === 'edit')      await this.openMissionForm(id);
         if (action === 'delete')    await this.deleteMission(id);
         if (action === 'export')    await ImportExport.exportMission(id);
+        if (action === 'update')    ImportExport.openUpdateDialog(id);
         if (action === 'archive')   await this.archiveMission(id, true);
         if (action === 'unarchive') await this.archiveMission(id, false);
       });
@@ -301,9 +305,10 @@ export const MissionsPanel = {
   async enterMission(id, { silent = false } = {}) {
     const mission = await DB.getMission(id);
     if (!mission) return;
-    State.activeMission  = mission;
-    State.selectedZoneId = null;
+    State.activeMission   = mission;
+    State.selectedZoneId  = null;
     State.selectedAssetId = null;
+    State.selectedSubitemId = null;
     localStorage.setItem('hh-activeMissionId', id);
     enableMissionNav(true);
     qs('#active-mission-badge').classList.remove('hidden');

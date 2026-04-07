@@ -2,7 +2,7 @@
 <!--
   HackerHero — Offline Documentation
   Covers: Application Architecture, Code Structure, Usage Guide, Extending
-  Last updated: 2026-04-02
+  Last updated: 2026-04-07
 -->
 <html lang="en">
 <head>
@@ -84,7 +84,7 @@
       <a href="#usage-changelog">— Changelog</a>
       <a href="#usage-tickets">— Tickets</a>
       <a href="#usage-attachments">— Image Attachments</a>
-      <a href="#usage-import">— Import / Export</a>
+      <a href="#usage-import">— Import / Export / Merge</a>
       <a href="#usage-settings">— Settings</a>
       <div class="nav-section">Architecture</div>
       <a href="#architecture">Application Architecture</a>
@@ -128,8 +128,13 @@
           <li>Click <strong>+ New Operation</strong> to create a red team operation.</li>
           <li>Fill in: Code Name (required), Targets (comma-separated: company names, IPs, domains…), Objectives (one per line), and Context notes.</li>
           <li>Click <strong>→ Enter</strong> on an operation to activate it. The operation name appears in the header badge.</li>
+          <li><strong>Inline rename:</strong> click the operation name in the header badge to rename it instantly. Press <strong>Enter</strong> to save, <strong>Escape</strong> to cancel. Duplicate codenames are prevented.</li>
+          <li>Click <strong>✎ Edit</strong> on an operation card for the full edit form (targets, objectives, context, timezone).</li>
           <li>Click <strong>⬇ Export</strong> to export the operation to a JSON file.</li>
-          <li>Click <strong>✕ Delete</strong> to permanently delete the operation and all its data (zones, assets, subitems, versions, tickets, changelog entries).</li>
+          <li>Click <strong>⬆ Update</strong> to merge data from a JSON file into this operation.</li>
+          <li>Click <strong>🔀 Merge</strong> to merge two existing operations (source data merges into target; each operation keeps its own codename).</li>
+          <li>Click <strong>📦 Archive</strong> to hide the operation from the main list (restorable).</li>
+          <li>Click <strong>✕ Delete</strong> to permanently delete the operation and all its data.</li>
         </ul>
       </section>
 
@@ -162,7 +167,7 @@
         <ul>
           <li>Click <strong>📄</strong> on an asset to add a data item (paste command output, credentials, notes).</li>
           <li>When pasting content, the auto-parser detects common formats and suggests a name. Click <strong>Apply</strong> to accept.</li>
-          <li>The app recognises <strong>52 command output formats</strong> including: <code>ip addr</code>, <code>ifconfig</code>, <code>ipconfig</code>, <code>nmap</code>, <code>netstat</code>, <code>ss</code>, <code>ps aux</code>, <code>ps faux</code>, <code>tasklist</code>, <code>systeminfo</code>, <code>uname</code>, <code>/etc/passwd</code>, <code>/etc/shadow</code>, <code>/etc/hosts</code>, <code>iptables</code>, <code>sudo -l</code>, <code>net user</code>, <code>net localgroup</code>, <code>schtasks</code>, <code>crontab</code>, SSH keys, HTTP headers, hash lists, DNS lookups, Nikto, web fuzzing results, Apache/Nginx configs, and more.</li>
+          <li>The app recognises <strong>118 command output formats</strong> in 26 categories including: nmap, Nuclei, SQLMap, Gobuster, ffuf, httpx, Amass, Subfinder, Katana, Shodan, LinPEAS, Impacket, TruffleHog, AWS CLI, and many more system tools (<code>ip addr</code>, <code>netstat</code>, <code>ps aux</code>, <code>systeminfo</code>, <code>/etc/passwd</code>, <code>/etc/shadow</code>, <code>sudo -l</code>, <code>crontab</code>, SSH keys, HTTP headers, hashes, etc.).</li>
           <li>Hover over any asset or data item to see the operator who added it and the timestamp.</li>
         </ul>
 
@@ -227,8 +232,11 @@
         <ul>
           <li>Every create, update, and delete is automatically recorded with timestamp and operator name.</li>
           <li>The Changelog panel shows all entries for the active operation, newest first.</li>
-          <li>Click the revert button <strong>⌫</strong> on any entry to undo that change.</li>
+          <li>Use the <strong>filter dropdowns</strong> to narrow entries by <strong>operator</strong>, <strong>action</strong> (create, update, delete, merge), or <strong>source operation</strong> (for entries imported via merge).</li>
+          <li>Merge entries are highlighted with a <strong>🔀 badge</strong> and show the source operation name.</li>
+          <li>Click the revert button <strong>⌫</strong> on any non-merge entry to undo that change.</li>
           <li>Reverting a <em>create</em> deletes the entity. Reverting an <em>update</em> restores the previous state. Reverting a <em>delete</em> recreates the entity.</li>
+          <li>Click any changelog entry to navigate directly to the referenced entity in the Assets panel.</li>
         </ul>
       </section>
 
@@ -268,15 +276,41 @@
 
       <!-- ── Import / Export ────────────────────────────────────────── -->
       <section id="usage-import">
-        <h3>Import / Export</h3>
+        <h3>Import / Export / Merge</h3>
+        <p>HackerHero supports 3 import workflows for team collaboration:</p>
+
+        <h3 style="font-size:14px;margin-top:16px">Export</h3>
         <ul>
-          <li>Export any individual operation via <strong>⬇ Export</strong> in the Operations panel.</li>
+          <li>Export any individual operation via <strong>⬇ Export</strong> on its card.</li>
           <li>Export all operations at once via <strong>Settings → Export All Operations</strong>.</li>
-          <li>Import a JSON file via <strong>⬆ Import</strong> in the Operations panel.</li>
-          <li>Imported data is assigned new IDs to prevent conflicts. Original operator names and timestamps are preserved.</li>
-          <li>You can optionally override the code name during import.</li>
+          <li>Export format includes all data: zones, assets, subitems, versions, tickets, messages, attachments, and changelog.</li>
+        </ul>
+
+        <h3 style="font-size:14px;margin-top:16px">Import (create new)</h3>
+        <ul>
+          <li>Click <strong>⬆ Import</strong> in the Operations panel to create new operations from a JSON file.</li>
+          <li>If a codename already exists, it is <strong>auto-suffixed</strong> with -01, -02, etc.</li>
+          <li>All IDs are remapped to prevent collisions. Original operator names and timestamps are preserved.</li>
           <li>Both single-mission and multi-mission backup formats are supported.</li>
         </ul>
+
+        <h3 style="font-size:14px;margin-top:16px">Update (merge from file)</h3>
+        <ul>
+          <li>Click <strong>⬆ Update</strong> on an operation card to merge data from a JSON file into it.</li>
+          <li>Uses <strong>smart merge</strong>: existing entities are updated if the source is newer (<code>updatedAt</code>-based), new entities are created.</li>
+          <li>Each operation <strong>keeps its own codename</strong> — the merge never overwrites the destination's name.</li>
+          <li>Merge entries in the changelog are tagged with the source operation name and a <strong>🔀</strong> badge.</li>
+        </ul>
+
+        <h3 style="font-size:14px;margin-top:16px">Merge two operations</h3>
+        <ul>
+          <li>Click <strong>🔀 Merge</strong> in the Operations panel to merge two existing operations.</li>
+          <li>Select a source and a target — all source data is merged into the target.</li>
+          <li>Conflict detection: when both operators edited the same entity, the merge keeps the newest version and logs a ⚠️ conflict in the changelog.</li>
+          <li>After merge, the source operation remains untouched (you can delete it manually if desired).</li>
+        </ul>
+
+        <div class="note"><strong>Tip:</strong> Use the <strong>source operation filter</strong> in the Changelog panel to review all entries that came from a specific merge.</div>
       </section>
 
       <!-- ── Settings ───────────────────────────────────────────────── -->
@@ -284,7 +318,7 @@
         <h3>Settings</h3>
         <ul>
           <li><strong>Operator Identity:</strong> change your operator name or click the dice button to get a new random Magic creature name.</li>
-          <li><strong>Theme:</strong> pick from 6 visual themes displayed as cards with live swatches.</li>
+          <li><strong>Theme:</strong> pick from 8 visual themes displayed as cards with live swatches.</li>
           <li><strong>Export All:</strong> export every operation as a single JSON backup file.</li>
           <li><strong>Clear All Data:</strong> delete all operations and reset the database. Requires double confirmation.</li>
           <li><strong>Database Reset (Nuclear):</strong> completely destroy and recreate the IndexedDB. Use only as a last resort.</li>
@@ -303,9 +337,9 @@
       <table>
         <tr><th>Layer</th><th>Technology</th><th>Notes</th></tr>
         <tr><td>UI</td><td>Vanilla HTML + CSS + ES6 JS</td><td>No frameworks. Zero dependencies.</td></tr>
-        <tr><td>Storage</td><td>IndexedDB</td><td>Via a Promise-based wrapper in <code>db.js</code> — 11 object stores</td></tr>
-        <tr><td>Modules</td><td>ES6 native modules</td><td><code>type="module"</code> — requires HTTP server</td></tr>
-        <tr><td>Styling</td><td>CSS Custom Properties</td><td>6 themes, zero pre-processing</td></tr>
+        <tr><td>Storage</td><td>IndexedDB</td><td>Via a Promise-based wrapper in <code>db.js</code> — 12 object stores, schema v7</td></tr>
+        <tr><td>Modules</td><td>ES6 native modules</td><td><code>type="module"</code> — 16 JS modules, requires HTTP server</td></tr>
+        <tr><td>Styling</td><td>CSS Custom Properties</td><td>8 themes, zero pre-processing</td></tr>
       </table>
 
       <h3>Data Flow</h3>
@@ -331,20 +365,21 @@
       <h2>Data Model</h2>
 
       <h3>IndexedDB Stores</h3>
-      <p>Database: <code>HackerHeroDB</code>, version <strong>3</strong>. Contains 11 object stores:</p>
+      <p>Database: <code>HackerHeroDB</code>, version <strong>7</strong>. Contains 12 object stores:</p>
       <table>
         <tr><th>Store</th><th>Key</th><th>Indexes</th><th>Description</th></tr>
         <tr><td><code>settings</code></td><td>key</td><td>—</td><td>App settings (operator name, theme)</td></tr>
         <tr><td><code>missions</code></td><td>id</td><td>by-codename, by-created</td><td>Red team operations</td></tr>
         <tr><td><code>zones</code></td><td>id</td><td>by-mission</td><td>Network zones per mission</td></tr>
-        <tr><td><code>assets</code></td><td>id</td><td>by-mission, by-zone, by-parent</td><td>Assets (tree structure)</td></tr>
+        <tr><td><code>assets</code></td><td>id</td><td>by-mission, by-zone (multiEntry), by-parent</td><td>Assets (tree structure, multi-zone)</td></tr>
         <tr><td><code>assetVersions</code></td><td>id</td><td>by-asset, by-timestamp</td><td>Version snapshots of assets</td></tr>
-        <tr><td><code>subitems</code></td><td>id</td><td>by-asset, by-parent</td><td>Data items attached to assets</td></tr>
+        <tr><td><code>subitems</code></td><td>id</td><td>by-asset, by-parent</td><td>Data items (tree children of assets)</td></tr>
         <tr><td><code>subitemVersions</code></td><td>id</td><td>by-subitem, by-timestamp</td><td>Version snapshots of subitems</td></tr>
-        <tr><td><code>changelog</code></td><td>id</td><td>by-mission, by-timestamp</td><td>Full audit log</td></tr>
+        <tr><td><code>changelog</code></td><td>id</td><td>by-mission, by-timestamp</td><td>Full audit log with merge attribution</td></tr>
         <tr><td><code>tickets</code></td><td>id</td><td>by-mission, by-ref</td><td>Issue tickets linked to entities</td></tr>
         <tr><td><code>ticketMessages</code></td><td>id</td><td>by-ticket</td><td>Conversation messages per ticket</td></tr>
-        <tr><td><code>attachments</code></td><td>id</td><td>by-parent</td><td>Image attachments (base64 data URLs) for assets, subitems, and tickets</td></tr>
+        <tr><td><code>attachments</code></td><td>id</td><td>by-mission, by-ref</td><td>Image attachments (base64 data URLs)</td></tr>
+        <tr><td><code>intelligence</code></td><td>id</td><td>by-mission</td><td>Intelligence notes per mission</td></tr>
       </table>
 
       <h3>Key Relationships</h3>
@@ -357,20 +392,21 @@
         <li><code>ChangelogEntry</code> stores full <code>previousState</code> and <code>newState</code> objects for revert capability</li>
       </ul>
 
-      <h3>DB Methods (38 total)</h3>
+      <h3>DB Methods (57 total)</h3>
       <table>
         <tr><th>Category</th><th>Methods</th></tr>
         <tr><td>Settings</td><td><code>getSetting</code>, <code>setSetting</code></td></tr>
         <tr><td>Missions</td><td><code>getAllMissions</code>, <code>getMission</code>, <code>saveMission</code>, <code>deleteMission</code> (cascade)</td></tr>
-        <tr><td>Zones</td><td><code>getZonesForMission</code>, <code>getZone</code>, <code>saveZone</code>, <code>deleteZone</code> (cascade)</td></tr>
-        <tr><td>Assets</td><td><code>getAssetsForMission</code>, <code>getAssetsForZone</code>, <code>getChildAssets</code>, <code>getAsset</code>, <code>saveAsset</code>, <code>deleteAssetRecursive</code></td></tr>
-        <tr><td>Subitems</td><td><code>getSubitemsForAsset</code>, <code>getSubitem</code>, <code>saveSubitem</code>, <code>deleteSubitem</code></td></tr>
-        <tr><td>Subitem Versions</td><td><code>saveSubitemVersion</code>, <code>getSubitemVersions</code></td></tr>
-        <tr><td>Asset Versions</td><td><code>saveAssetVersion</code>, <code>getAssetVersions</code></td></tr>
-        <tr><td>Changelog</td><td><code>getChangelogForMission</code>, <code>saveChangelogEntry</code>, <code>deleteChangelogEntry</code></td></tr>
-        <tr><td>Tickets</td><td><code>getTicketsForMission</code>, <code>getTicketsForRef</code>, <code>getTicket</code>, <code>saveTicket</code>, <code>deleteTicket</code></td></tr>
-        <tr><td>Messages</td><td><code>getMessagesForTicket</code>, <code>saveMessage</code>, <code>deleteMessage</code></td></tr>
-        <tr><td>Global</td><td><code>getAllDataForMission</code>, <code>importMissionData</code>, <code>nukeDatabase</code></td></tr>
+        <tr><td>Zones</td><td><code>getZonesByMission</code>, <code>getZone</code>, <code>saveZone</code>, <code>deleteZone</code> (cascade)</td></tr>
+        <tr><td>Assets</td><td><code>getAssetsByMission</code>, <code>getAssetsByZone</code>, <code>getAssetChildren</code>, <code>getAsset</code>, <code>saveAsset</code>, <code>deleteAsset</code> (cascade)</td></tr>
+        <tr><td>Subitems</td><td><code>getSubitemsByAsset</code>, <code>getSubitemChildren</code>, <code>getSubitem</code>, <code>saveSubitem</code>, <code>deleteSubitem</code></td></tr>
+        <tr><td>Versions</td><td><code>saveAssetVersion</code>, <code>getAssetVersions</code>, <code>saveSubitemVersion</code>, <code>getSubitemVersions</code></td></tr>
+        <tr><td>Changelog</td><td><code>getChangelogByMission</code>, <code>saveChangelogEntry</code>, <code>deleteChangelogEntry</code></td></tr>
+        <tr><td>Tickets</td><td><code>getTicketsByMission</code>, <code>getTicketsByRef</code>, <code>getTicket</code>, <code>saveTicket</code>, <code>deleteTicket</code></td></tr>
+        <tr><td>Messages</td><td><code>getMessagesByTicket</code>, <code>saveTicketMessage</code></td></tr>
+        <tr><td>Attachments</td><td><code>getAttachmentsByRef</code>, <code>saveAttachment</code>, <code>deleteAttachment</code></td></tr>
+        <tr><td>Import / Merge</td><td><code>importMissionData</code>, <code>mergeMissionData</code> (smart conflict detection), <code>exportMissionData</code></td></tr>
+        <tr><td>Global</td><td><code>resetDatabase</code></td></tr>
       </table>
     </section>
 
@@ -380,15 +416,16 @@
     <section id="code-structure">
       <h2>Code Structure</h2>
       <pre>HackerHero/
-  index.html          HTML shell (~500 lines). Panel containers are empty
-                      &lt;section&gt; tags. Panels rendered dynamically by app.js.
+  index.html          HTML shell (~410 lines). Panel containers are empty
+                      &lt;section&gt; tags. Panels rendered dynamically by JS modules.
                       Includes Matrix canvas, Upside Down overlay (spores,
                       vines, bikes, Vecna clock), Operation alert banner.
   favicon.svg         SVG logo — hacker playing guitar (Eddie / Stranger Things)
+  Dockerfile          Docker image (nginx:alpine, serves on port 80)
   README.md           Quick start &amp; setup
   css/
-    app.css           All styles (~2360 lines). Organised in 8 sections:
-                      1. CSS Custom Properties (6 themes via [data-theme])
+    app.css           All styles (~3,480 lines). Organised in 8 sections:
+                      1. CSS Custom Properties (8 themes via [data-theme])
                       2. Reset &amp; Base
                       3. Layout (sidebar, header, 3-column assets)
                       4. Navigation
@@ -398,48 +435,63 @@
                          Operation banner)
                       8. Utilities &amp; responsive
   js/
-    db.js             IndexedDB wrapper (~730 lines). Exports DB object with
-                      38 CRUD methods for 11 object stores. Handles schema
-                      migrations (v1 → v2 → v3). JSDoc type definitions.
-    utils.js          Pure utility functions (~290 lines, 21 exports):
+    app.js            Thin orchestrator (~190 lines). Imports all panel
+                      modules, wires routing callbacks, inline operation
+                      rename handler, and runs the init() bootstrap.
+    core.js           Shared core module (~820 lines). Exports:
+                      State, UI, ThemeManager, Lightbox, TZClock,
+                      ImportExport (3 workflows: create, update, merge),
+                      renderMarkdown, renderAttachmentStrip, logChange,
+                      showPanel, enableMissionNav, bindModalButtons.
+                      Re-exports db.js, utils.js, parsers.js, asset-icons.js.
+    db.js             IndexedDB wrapper (~1,440 lines). Exports DB object
+                      with 57 async methods for 12 object stores.
+                      Schema v7 with migrations. Smart merge engine
+                      (conflict detection, newest-wins, merge attribution).
+    utils.js          Pure utility functions (~380 lines, 25+ exports):
                       generateId, formatDate, escHtml, matchesQuery,
                       debounce, DOM helpers, file I/O, XSS sanitization,
                       import validation, sort comparators.
     magic-names.js    ~290 Magic: The Gathering creature names +
                       getRandomCreatureName() export.
-    parsers.js        Command output parsers (~2720 lines). Exports PARSERS[]
-                      (52 parsers in 11 categories), detectParsers(),
-                      runParser(). Fully extensible.
-    app.js            Main application module (~3940 lines). Contains:
-                      - State object (central mutable state)
-                      - logChange() changelog helper
-                      - ThemeManager (6 themes + Matrix rain + Upside Down
-                        effects: reflection, flicker, nav flicker)
-                      - UI utilities (Modal, Toast, Confirm, Tooltip)
-                      - Navigation / showPanel() dispatcher
-                      - MissionsPanel    — operation CRUD, card grid
-                      - OverviewPanel    — mission info, targets, objectives
-                      - AssetsPanel      — 3-column zone/asset/data view
-                        (tree, drag-drop, keyboard nav, column resize,
-                         version diff, status badges, parser auto-detect)
-                      - SearchPanel      — basic + advanced with regex
-                      - MapPanel         — interactive SVG + pan/zoom
-                      - ChangelogPanel   — audit log with revert
-                      - TicketsPanel     — issue tracking with priorities,
-                        linked references, conversation threads
-                      - SettingsPanel    — operator, themes, export, reset
-                      - DocsPanel        — built-in documentation tabs
-                      - ImportExport     — JSON import/export
-                      - init()           — app bootstrap
+    parsers.js        Command output parsers (~4,780 lines). Exports
+                      PARSERS[] (118 parsers in 26 categories),
+                      detectParsers(), runParser(). Fully extensible.
+    asset-icons.js    142 SVG icons in 12 categories with keyword search.
+    demo-data.js      Demo data generator: 3 ops, 6 operators.
+    panel-missions.js Operations CRUD, import, merge, archive (~375 lines).
+    panel-overview.js Dashboard: KPIs, sparkline, activity, objectives (~510 lines).
+    panel-assets.js   3-column zone/asset/data view (~2,260 lines):
+                      tree, drag-drop, keyboard nav, column resize,
+                      version diff, status badges, parser auto-detect.
+    panel-search.js   Full-text, query language, advanced (~440 lines).
+    panel-changelog.js Audit log with 3 filters + revert (~200 lines).
+    panel-tickets.js  Tickets: list, detail, forum messages (~470 lines).
+    panel-settings.js Identity, themes, data management, demo (~200 lines).
+    panel-docs.js     Built-in documentation (9 tabs, ~780 lines).
   docs/
     index.html        This documentation file (self-contained HTML)</pre>
 
-      <h3>52 Command Output Parsers</h3>
-      <p>The <code>PARSERS</code> array in <code>js/parsers.js</code> contains 52 parsers organised in 11 categories:</p>
+      <h3>118 Command Output Parsers</h3>
+      <p>The <code>PARSERS</code> array in <code>js/parsers.js</code> contains 118 parsers organised in 26 categories:</p>
       <table>
         <tr><th>Category</th><th>Parsers</th></tr>
-        <tr><td>Network / Identity</td><td><code>ip_addr</code>, <code>ifconfig</code>, <code>ipconfig</code>, <code>id_whoami</code>, <code>whoami_all</code>, <code>uname</code>, <code>os_release</code></td></tr>
-        <tr><td>Scanning</td><td><code>nmap</code>, <code>port_scan</code>, <code>web_fuzz</code>, <code>nikto</code>, <code>dns_lookup</code></td></tr>
+        <tr><td>IP Addresses</td><td><code>ip_addr</code>, <code>ifconfig</code>, <code>ipconfig</code></td></tr>
+        <tr><td>Network / Identity</td><td><code>id_whoami</code>, <code>whoami_all</code>, <code>uname</code>, <code>os_release</code>, <code>hostname_ctl</code></td></tr>
+        <tr><td>Scanning</td><td><code>nmap</code>, <code>port_scan</code>, <code>masscan</code>, <code>rustscan</code></td></tr>
+        <tr><td>Web Fuzzing</td><td><code>web_fuzz</code>, <code>feroxbuster</code>, <code>dirsearch</code></td></tr>
+        <tr><td>Vulnerability Scanning</td><td><code>nikto</code>, <code>nuclei</code>, <code>wpscan</code>, <code>droopescan</code>, <code>joomscan</code></td></tr>
+        <tr><td>XSS</td><td><code>dalfox</code>, <code>xsstrike</code></td></tr>
+        <tr><td>SQL Injection</td><td><code>sqlmap</code>, <code>ghauri</code></td></tr>
+        <tr><td>HTTP Probing</td><td><code>httpx</code>, <code>httprobe</code></td></tr>
+        <tr><td>Subdomain &amp; DNS Discovery</td><td><code>dns_lookup</code>, <code>subfinder</code>, <code>amass</code>, <code>assetfinder</code>, <code>dnsx</code>, <code>dnsrecon</code>, <code>fierce</code>, <code>knockpy</code>, <code>aiodnsbrute</code></td></tr>
+        <tr><td>Web Crawling &amp; URL Discovery</td><td><code>gospider</code>, <code>hakrawler</code>, <code>katana</code>, <code>waybackurls</code>, <code>gau</code>, <code>urlfinder</code></td></tr>
+        <tr><td>JS / Parameter / Secret Analysis</td><td><code>linkfinder</code>, <code>secretfinder</code>, <code>paramspider</code>, <code>arjun</code></td></tr>
+        <tr><td>Secret &amp; Credential Scanning</td><td><code>trufflehog</code>, <code>gitleaks</code></td></tr>
+        <tr><td>OSINT / Internet-wide</td><td><code>shodan_host</code>, <code>theHarvester</code>, <code>whois_lookup</code>, <code>censys</code></td></tr>
+        <tr><td>Cloud Security</td><td><code>cloudenum</code>, <code>scoutsuite</code>, <code>prowler</code></td></tr>
+        <tr><td>Privilege Escalation</td><td><code>linpeas</code>, <code>winpeas</code>, <code>linux_exploit_suggester</code></td></tr>
+        <tr><td>Impacket</td><td><code>impacket_secretsdump</code>, <code>impacket_getuserspns</code></td></tr>
         <tr><td>Connections &amp; Routing</td><td><code>netstat</code>, <code>ss</code>, <code>arp</code>, <code>route</code>, <code>lsof</code></td></tr>
         <tr><td>Processes &amp; Services</td><td><code>ps_faux</code>, <code>ps_aux</code>, <code>tasklist</code>, <code>sc_query</code>, <code>schtasks</code>, <code>crontab</code></td></tr>
         <tr><td>System Info</td><td><code>systeminfo</code>, <code>mount_df</code>, <code>etc_fstab</code>, <code>env_vars</code>, <code>pkg_list</code>, <code>dir_ls</code>, <code>wmic</code></td></tr>
@@ -447,6 +499,8 @@
         <tr><td>Users &amp; Privileges</td><td><code>net_user</code>, <code>net_localgroup</code>, <code>net_share</code>, <code>sudo_l</code>, <code>etc_sudoers</code>, <code>cmdkey</code></td></tr>
         <tr><td>Config Files</td><td><code>sshd_config</code>, <code>apache_conf</code></td></tr>
         <tr><td>Firewall</td><td><code>iptables</code></td></tr>
+        <tr><td>Logs</td><td><code>auth_log</code></td></tr>
+        <tr><td>Email</td><td><code>email_header</code></td></tr>
         <tr><td>Registry</td><td><code>reg_query</code></td></tr>
       </table>
       <p>Each parser exposes: <code>id</code>, <code>label</code>, <code>icon</code>, <code>detect(text) → confidence</code>, <code>parse(text) → data</code>, <code>suggestName(data)</code>, <code>suggestItemName()</code>.</p>
@@ -491,7 +545,7 @@ const MY_PARSER = {
 };
 
 // 2. Add to the appropriate category section in the PARSERS array
-//    (at the bottom of parsers.js — currently 52 parsers in 11 categories)
+//    (at the bottom of parsers.js — currently 118 parsers in 26 categories)
 export const PARSERS = [
   // ... Network / Identity ...
   // ... Scanning ...
@@ -523,7 +577,7 @@ export const PARSERS = [
   --glow-accent:   …;
   --glow-cyan:     …;
 }</pre>
-      <p><strong>Step 2:</strong> Register in <code>ThemeManager.themes</code> in <code>js/app.js</code>:</p>
+      <p><strong>Step 2:</strong> Register in <code>ThemeManager.themes</code> in <code>js/core.js</code>:</p>
       <pre>ThemeManager.themes['my-theme'] = {
   name:   'My Theme',
   desc:   'Short description',
@@ -542,8 +596,10 @@ export const PARSERS = [
   &lt;span class="nav-icon"&gt;🚀&lt;/span&gt;
   &lt;span class="nav-label"&gt;My Panel&lt;/span&gt;
 &lt;/li&gt;</pre>
-      <p><strong>Step 3:</strong> Create a panel object in <code>js/app.js</code>:</p>
-      <pre>const MyPanel = {
+      <p><strong>Step 3:</strong> Create a new module <code>js/panel-mypanel.js</code>:</p>
+      <pre>import { qs } from './core.js';
+
+export const MyPanel = {
   async render() {
     qs('#panel-mypanel').innerHTML = `&lt;div class="panel-header"&gt;
       &lt;h2&gt;My Panel&lt;/h2&gt;
@@ -555,8 +611,10 @@ export const PARSERS = [
     // Attach DOM event listeners here
   },
 };</pre>
-      <p><strong>Step 4:</strong> Register it in the <code>showPanel()</code> switch:</p>
-      <pre>case 'mypanel': await MyPanel.render(); break;</pre>
+      <p><strong>Step 4:</strong> Import it in <code>js/app.js</code> and register in the panel router:</p>
+      <pre>import { MyPanel } from './panel-mypanel.js';
+// then in the showPanel() switch:
+case 'mypanel': await MyPanel.render(); break;</pre>
       <div class="note"><strong>Tip:</strong> If the panel should only be accessible when an operation is active (like Assets or Search), add <code>class="nav-item mission-only"</code> to the nav item. It will be greyed out until an operation is entered.</div>
     </section>
 

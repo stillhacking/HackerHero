@@ -7,13 +7,13 @@ import {
   State, DB, UI, showPanel,
   escHtml, highlight, truncate, matchesQuery, qs, qsa,
   getAssetIconSvg,
-} from './core.js?v=20260406u';
+} from './core.js?v=20260407g';
 import {
   ASSET_ICON, assetIcon, subitemIcon,
   ASSET_STATUSES, normalizeStatuses,
   QUERY_KEYWORDS, parseQuery, matchDescriptor,
   AssetsPanel,
-} from './panel-assets.js?v=20260406u';
+} from './panel-assets.js?v=20260407g';
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  SEARCH PANEL

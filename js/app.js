@@ -13,18 +13,18 @@ import {
   showPanel, setPanelRouter, setSkipHistoryPush,
   enableMissionNav, bindModalButtons, Lightbox, TZClock,
   setOnImportDone,
-  getRandomCreatureName, qs, qsa,
-} from './core.js?v=20260406u';
+  getRandomCreatureName, logChange, now, qs, qsa,
+} from './core.js?v=20260407g';
 
 // ── Panel modules ──────────────────────────────────────────────────────────
-import { MissionsPanel }  from './panel-missions.js?v=20260406u';
-import { OverviewPanel }  from './panel-overview.js?v=20260406u';
-import { AssetsPanel, setTicketsPanelRef } from './panel-assets.js?v=20260406u';
-import { SearchPanel }    from './panel-search.js?v=20260406u';
-import { ChangelogPanel } from './panel-changelog.js?v=20260406u';
-import { TicketsPanel }   from './panel-tickets.js?v=20260406u';
-import { SettingsPanel }  from './panel-settings.js?v=20260406u';
-import { DocsPanel }      from './panel-docs.js?v=20260406u';
+import { MissionsPanel }  from './panel-missions.js?v=20260407g';
+import { OverviewPanel }  from './panel-overview.js?v=20260407g';
+import { AssetsPanel, setTicketsPanelRef } from './panel-assets.js?v=20260407g';
+import { SearchPanel }    from './panel-search.js?v=20260407g';
+import { ChangelogPanel } from './panel-changelog.js?v=20260407g';
+import { TicketsPanel }   from './panel-tickets.js?v=20260407g';
+import { SettingsPanel }  from './panel-settings.js?v=20260407g';
+import { DocsPanel }      from './panel-docs.js?v=20260407g';
 
 // ── Wire cross-module references ───────────────────────────────────────────
 // AssetsPanel needs TicketsPanel for creating tickets from asset/zone detail.
@@ -89,6 +89,58 @@ async function init() {
 
     // Operator chip in header
     qs('#operator-chip').addEventListener('click', () => showPanel('settings'));
+
+    // Inline rename: click on operation name in header badge
+    qs('#active-mission-name').addEventListener('click', async () => {
+      if (!State.activeMission) return;
+      const span = qs('#active-mission-name');
+      if (span.querySelector('input')) return; // already editing
+
+      const oldName = State.activeMission.codename;
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = oldName;
+      input.className = 'inline-rename-input';
+      span.textContent = '';
+      span.appendChild(input);
+      input.focus();
+      input.select();
+
+      const finish = async (save) => {
+        const newName = input.value.trim();
+        input.removeEventListener('keydown', onKey);
+        input.removeEventListener('blur', onBlur);
+
+        if (save && newName && newName !== oldName) {
+          // Prevent duplicate codenames
+          const all = await DB.getAllMissions();
+          const dup = all.find(m => m.codename.toLowerCase() === newName.toLowerCase() && m.id !== State.activeMission.id);
+          if (dup) {
+            UI.toast(`An operation named "${dup.codename}" already exists`, 'error');
+            span.textContent = oldName;
+            return;
+          }
+          const prev = { ...State.activeMission };
+          State.activeMission.codename  = newName;
+          State.activeMission.updatedAt = now();
+          State.activeMission.updatedBy = State.operatorName;
+          await DB.saveMission(State.activeMission);
+          await logChange('update', 'mission', State.activeMission.id, newName, `Renamed operation "${oldName}" → "${newName}"`, prev, State.activeMission);
+          span.textContent = newName;
+          UI.toast('Operation renamed', 'success');
+        } else {
+          span.textContent = oldName;
+        }
+      };
+
+      const onKey = (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+        if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+      };
+      const onBlur = () => finish(true);
+      input.addEventListener('keydown', onKey);
+      input.addEventListener('blur', onBlur);
+    });
 
     // Modal buttons
     bindModalButtons();
